@@ -46,7 +46,7 @@ namespace ImageMosaic
 
         private void process_button_Click(object sender, EventArgs e)
         {
-            processingService.Process(inputData);
+            processingService.Process(inputData, outputImageBox);
         }
     }
 }

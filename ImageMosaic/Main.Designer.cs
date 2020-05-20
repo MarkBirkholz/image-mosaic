@@ -33,6 +33,8 @@
             this.pathToImagesFolder_button = new System.Windows.Forms.Button();
             this.imageFolderBrowserDialog = new System.Windows.Forms.FolderBrowserDialog();
             this.process_button = new System.Windows.Forms.Button();
+            this.outputImageBox = new System.Windows.Forms.PictureBox();
+            ((System.ComponentModel.ISupportInitialize)(this.outputImageBox)).BeginInit();
             this.SuspendLayout();
             // 
             // pathToImagesFolder_label
@@ -76,17 +78,27 @@
             this.process_button.UseVisualStyleBackColor = true;
             this.process_button.Click += new System.EventHandler(this.process_button_Click);
             // 
+            // outputImageBox
+            // 
+            this.outputImageBox.Location = new System.Drawing.Point(168, 70);
+            this.outputImageBox.Name = "outputImageBox";
+            this.outputImageBox.Size = new System.Drawing.Size(100, 50);
+            this.outputImageBox.TabIndex = 4;
+            this.outputImageBox.TabStop = false;
+            // 
             // Main
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(800, 450);
+            this.Controls.Add(this.outputImageBox);
             this.Controls.Add(this.process_button);
             this.Controls.Add(this.pathToImagesFolder_button);
             this.Controls.Add(this.pathToImagesFolder_input);
             this.Controls.Add(this.pathToImagesFolder_label);
             this.Name = "Main";
             this.Text = "Image mosaic";
+            ((System.ComponentModel.ISupportInitialize)(this.outputImageBox)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
 
@@ -99,6 +111,7 @@
         private System.Windows.Forms.Button pathToImagesFolder_button;
         private System.Windows.Forms.FolderBrowserDialog imageFolderBrowserDialog;
         private System.Windows.Forms.Button process_button;
+        private System.Windows.Forms.PictureBox outputImageBox;
     }
 }
 
