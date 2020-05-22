@@ -1,8 +1,7 @@
 ﻿using ImageMosaic.Data;
+using ImageMosaic.Processing;
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Windows.Forms;
 
 namespace ImageMosaic
@@ -14,12 +13,16 @@ namespace ImageMosaic
         public Main()
         {
             inputData = new InputData();
-            processingService = new ProcessingService();
             InitializeComponent();
+            processingService = new ProcessingService(outputImageBox, logBox);
         }
 
         private void PathToImagesFolder_button_Click(object sender, EventArgs e)
         {
+            if (!string.IsNullOrEmpty(pathToImagesFolder_input.Text))
+            {
+                imageFolderBrowserDialog.SelectedPath = pathToImagesFolder_input.Text;
+            }
             var openFolderResult = imageFolderBrowserDialog.ShowDialog();
             if (openFolderResult == DialogResult.OK)
             {

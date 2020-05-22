@@ -1,4 +1,5 @@
 ﻿using ImageMosaic.Data;
+using ImageMosaic.Helpers;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -6,10 +7,23 @@ using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 
-namespace ImageMosaic
+namespace ImageMosaic.Processing
 {
     public class ProcessingService
     {
+        private readonly PictureBox outputImageBox;
+        private readonly TextBox logBox;
+        private readonly ImageReader imageReader;
+        private readonly Logger logger;
+
+        public ProcessingService(PictureBox outputImageBox, TextBox logBox)
+        {
+            this.outputImageBox = outputImageBox;
+            this.logBox = logBox;
+            logger = new Logger(logBox);
+            imageReader = new ImageReader(logger);
+        }
+
         public void Process(InputData inputData, PictureBox outputImageBox)
         {
             var validationResult = ValidateData(inputData);
@@ -18,7 +32,7 @@ namespace ImageMosaic
                 return;
             }
 
-            var images = GetImages(inputData.PathToRootFolder);
+            var images = imageReader.GetImages(inputData);
             var imageDataList = ProcessImages(images);
 
             var outputImage = GenerateOutputImage(imageDataList);
@@ -71,26 +85,6 @@ namespace ImageMosaic
             return result.ToArray();
         }
 
-        private List<Bitmap> GetImages(string pathToRootFolder)
-        {
-            var paths = Directory.GetFiles(pathToRootFolder, "*.jpg", SearchOption.AllDirectories);
-            var files = paths.Select(GetFirstPixelImage);
-            MessageBox.Show($"Found {files.Count()} files");
-
-            return files.ToList();
-        }
-
-        private Bitmap GetFirstPixelImage(string path)
-        {
-            var image = new Bitmap(path);
-            var color = image.GetPixel(0, 0);
-            image.Dispose();
-
-            var result = new Bitmap(1, 1);
-            result.SetPixel(0, 0, color);
-            return result;
-        }
-
         private bool ValidateData(InputData inputData)
         {
             var errorMessages = new List<string>();
@@ -111,7 +105,7 @@ namespace ImageMosaic
 
             return true;
         }
-
+        
         private class ImageData
         {
             public Color MainColor { get; set; }
