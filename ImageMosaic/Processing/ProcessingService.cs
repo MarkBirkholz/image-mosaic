@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace ImageMosaic.Processing
@@ -12,27 +13,27 @@ namespace ImageMosaic.Processing
     public class ProcessingService
     {
         private readonly PictureBox outputImageBox;
-        private readonly TextBox logBox;
         private readonly ImageReader imageReader;
         private readonly Logger logger;
 
-        public ProcessingService(PictureBox outputImageBox, TextBox logBox)
+        public ProcessingService(PictureBox outputImageBox, Logger logger)
         {
             this.outputImageBox = outputImageBox;
-            this.logBox = logBox;
-            logger = new Logger(logBox);
+            this.logger = logger;
             imageReader = new ImageReader(logger);
         }
 
-        public void Process(InputData inputData, PictureBox outputImageBox)
+        public async Task ProcessAsync(InputData inputData, PictureBox outputImageBox)
         {
+            logger.Log($"Start processing {inputData.PathToRootFolder} folder...");
             var validationResult = ValidateData(inputData);
             if (!validationResult)
             {
                 return;
             }
 
-            var images = imageReader.GetImages(inputData);
+            var images = await imageReader.GetImagesAsync(inputData);
+            /*
             var imageDataList = ProcessImages(images);
 
             var outputImage = GenerateOutputImage(imageDataList);
@@ -40,6 +41,8 @@ namespace ImageMosaic.Processing
             outputImageBox.Width = resizedImage.Width;
             outputImageBox.Height = resizedImage.Height;
             outputImageBox.Image = resizedImage;
+            */
+            logger.Log("Done" + Environment.NewLine);
         }
 
         public Bitmap ResizeBitmap(Bitmap bmp, int width, int height)
@@ -99,6 +102,7 @@ namespace ImageMosaic.Processing
 
             if (errorMessages.Any())
             {
+                logger.Log(errorMessages);
                 MessageBox.Show(string.Join(Environment.NewLine, errorMessages));
                 return false;
             }

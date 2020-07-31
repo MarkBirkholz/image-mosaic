@@ -2,7 +2,9 @@
 using ImageMosaic.Processing;
 using System;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows.Forms;
+using ImageMosaic.Helpers;
 
 namespace ImageMosaic
 {
@@ -16,11 +18,16 @@ namespace ImageMosaic
     {
         private InputData inputData;
         private readonly ProcessingService processingService;
+        private readonly Logger logger;
         public Main()
         {
-            inputData = new InputData();
             InitializeComponent();
-            processingService = new ProcessingService(outputImageBox, logBox);
+            logger = new Logger(logBox);
+            inputData = new InputData
+            {
+                PathToRootFolder = pathToImagesFolder_input.Text
+            };
+            processingService = new ProcessingService(outputImageBox, logger);
         }
 
         private void PathToImagesFolder_button_Click(object sender, EventArgs e)
@@ -53,9 +60,28 @@ namespace ImageMosaic
             }
         }
 
-        private void process_button_Click(object sender, EventArgs e)
+        private async void process_button_Click(object sender, EventArgs e)
         {
-            processingService.Process(inputData, outputImageBox);
+            process_button.Text = "STOP";
+            await Task.Factory.StartNew(() => ProcessAsync().ContinueWith(AfterExecution));
+        }
+
+        private async Task ProcessAsync()
+        {
+            try
+            {
+                await processingService.ProcessAsync(inputData, outputImageBox);
+            }
+            catch (Exception e)
+            {
+                logger.Log(e.ToString());
+            }
+        }
+
+        private void AfterExecution(Task obj)
+        {
+            process_button.Text = "GO";
+            process_button.Refresh();
         }
     }
 }

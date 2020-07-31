@@ -47,6 +47,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Data\InputData.cs" />
+    <Compile Include="Helpers\Helper.cs" />
     <Compile Include="Helpers\Logger.cs" />
     <Compile Include="Main.cs">
       <SubType>Form</SubType>
