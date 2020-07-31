@@ -23,7 +23,7 @@ namespace ImageMosaic.Processing
             logger.Log($"Found {paths.Length} files");
             var filesTask = paths.Select(GetFirstPixelImageAsync);
             var files = await Task.WhenAll(filesTask);
-            
+            //var files = paths.Select(p => GetFirstPixelImageAsync(p).Result).ToList();
             return files.ToList();
         }
 

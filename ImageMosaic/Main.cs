@@ -8,12 +8,6 @@ using ImageMosaic.Helpers;
 
 namespace ImageMosaic
 {
-    /// <summary>
-    /// 1. Перевести расчет в фон
-    /// 2. перевести чтение файлов на асинхронное чтение пачками
-    /// 3. залогировать все шаги, добавить вывод времени
-    /// ...
-    /// </summary>
     public partial class Main : Form
     {
         private InputData inputData;
@@ -70,7 +64,7 @@ namespace ImageMosaic
         {
             try
             {
-                await processingService.ProcessAsync(inputData, outputImageBox);
+                await processingService.ProcessAsync(inputData);
             }
             catch (Exception e)
             {

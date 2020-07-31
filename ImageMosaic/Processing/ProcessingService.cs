@@ -23,7 +23,7 @@ namespace ImageMosaic.Processing
             imageReader = new ImageReader(logger);
         }
 
-        public async Task ProcessAsync(InputData inputData, PictureBox outputImageBox)
+        public async Task ProcessAsync(InputData inputData)
         {
             logger.Log($"Start processing {inputData.PathToRootFolder} folder...");
             var validationResult = ValidateData(inputData);
@@ -33,18 +33,24 @@ namespace ImageMosaic.Processing
             }
 
             var images = await imageReader.GetImagesAsync(inputData);
-            /*
             var imageDataList = ProcessImages(images);
 
             var outputImage = GenerateOutputImage(imageDataList);
             var resizedImage = ResizeBitmap(outputImage, 300, 300);
-            outputImageBox.Width = resizedImage.Width;
-            outputImageBox.Height = resizedImage.Height;
-            outputImageBox.Image = resizedImage;
-            */
+            DrawImage(resizedImage);
             logger.Log("Done" + Environment.NewLine);
         }
 
+        private void DrawImage(Image resizedImage)
+        {
+            outputImageBox.BeginInvoke((MethodInvoker)(() =>
+            {
+                outputImageBox.Width = resizedImage.Width;
+                outputImageBox.Height = resizedImage.Height;
+                outputImageBox.Image = resizedImage;
+            }));
+        }
+        
         public Bitmap ResizeBitmap(Bitmap bmp, int width, int height)
         {
             Bitmap result = new Bitmap(width, height);
