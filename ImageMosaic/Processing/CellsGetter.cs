@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace ImageMosaic.Processing
@@ -17,13 +18,13 @@ namespace ImageMosaic.Processing
             this.logger = logger;
         }
 
-        public async Task<List<CellData>> GetCellsAsync(InputData inputData)
+        public async Task<List<CellData>> GetCellsAsync(InputData inputData, CancellationToken ct)
         {
-            var paths = Directory.GetFiles(inputData.PathToRootFolder, "*.jpg", SearchOption.AllDirectories);
+            var paths = Directory.GetFiles(inputData.PathToImagesRootFolder, "*.jpg", SearchOption.AllDirectories);
             logger.Log($"Found {paths.Length} files");
-            var cellsTask = paths.Select(GetCellAsync);
-            var cells = await Task.WhenAll(cellsTask);
-            return cells.ToList();
+            var cellTasks = paths.WithCancellation(ct).Select(GetCellAsync);
+            var cells = await Task.WhenAll(cellTasks);
+            return cells.Where(c => c != null).ToList();
         }
 
         private async Task<CellData> GetCellAsync(string path)

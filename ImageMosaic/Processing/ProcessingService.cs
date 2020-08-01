@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -23,17 +24,21 @@ namespace ImageMosaic.Processing
             cellsGetter = new CellsGetter(logger);
         }
 
-        public async Task ProcessAsync(InputData inputData)
+        public async Task ProcessAsync(InputData inputData, CancellationToken ct)
         {
-            logger.Log($"Start processing {inputData.PathToRootFolder} folder...");
+            logger.Log($"Start processing {inputData.PathToImagesRootFolder} folder...");
             var validationResult = ValidateData(inputData);
             if (!validationResult)
             {
                 return;
             }
 
-            var cells = await cellsGetter.GetCellsAsync(inputData);
-
+            var cells = await cellsGetter.GetCellsAsync(inputData, ct);
+            if (ct.IsCancellationRequested)
+            {
+                logger.Log("Process canceled" + Environment.NewLine);
+                return;
+            }
             var outputImage = GenerateOutputImage(cells);
             var resizedImage = ResizeBitmap(outputImage, 300, 300);
             DrawImage(resizedImage);
@@ -49,8 +54,8 @@ namespace ImageMosaic.Processing
                 outputImageBox.Image = resizedImage;
             }));
         }
-        
-        public Bitmap ResizeBitmap(Bitmap bmp, int width, int height)
+
+        private Bitmap ResizeBitmap(Bitmap bmp, int width, int height)
         {
             Bitmap result = new Bitmap(width, height);
             using (Graphics g = Graphics.FromImage(result))
@@ -85,11 +90,11 @@ namespace ImageMosaic.Processing
         private bool ValidateData(InputData inputData)
         {
             var errorMessages = new List<string>();
-            if (string.IsNullOrEmpty(inputData.PathToRootFolder))
+            if (string.IsNullOrEmpty(inputData.PathToImagesRootFolder))
             {
                 errorMessages.Add("Empty input folder path");
             }
-            if (!Directory.Exists(inputData.PathToRootFolder))
+            if (!Directory.Exists(inputData.PathToImagesRootFolder))
             {
                 errorMessages.Add("Directory by selected path does not exist");
             }

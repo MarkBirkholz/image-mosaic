@@ -2,6 +2,7 @@
 {
     public class InputData
     {
-        public string PathToRootFolder { get; set; }
+        public string PathToImagesRootFolder { get; set; }
+        public string PathToOriginalImage { get; set; }
     }
 }
