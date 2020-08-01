@@ -9,11 +9,11 @@ using System.Threading.Tasks;
 
 namespace ImageMosaic.Processing
 {
-    public class CellsGetter
+    public class ImageGetter
     {
         private readonly Logger logger;
 
-        public CellsGetter(Logger logger)
+        public ImageGetter(Logger logger)
         {
             this.logger = logger;
         }
@@ -27,7 +27,7 @@ namespace ImageMosaic.Processing
             return cells.Where(c => c != null).ToList();
         }
 
-        private async Task<CellData> GetCellAsync(string path)
+        private Task<CellData> GetCellAsync(string path)
         {
             logger.Log($"Get first pixel by {path}...");
             var originalImage = new Bitmap(path);
@@ -41,13 +41,32 @@ namespace ImageMosaic.Processing
                 Image = cellImage
             };
 
-            return result;
+            return Task.FromResult(result);
         }
 
-        private static Color GetImageColor(Bitmap image)
+        public Color GetImageColor(Bitmap image)
         {
             //todo calculate color
             return image.GetPixel(0, 0);
         }
+
+        public Bitmap GetImage(string path, int width, int height)
+        {
+            var image = new Bitmap(path);
+
+            return ResizeBitmap(image, width, height);
+        }
+        
+        public Bitmap ResizeBitmap(Bitmap bmp, int width, int height)
+        {
+            Bitmap result = new Bitmap(width, height);
+            using (Graphics g = Graphics.FromImage(result))
+            {
+                g.DrawImage(bmp, 0, 0, width, height);
+            }
+
+            return result;
+        }
+
     }
 }

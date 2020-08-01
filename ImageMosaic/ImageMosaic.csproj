@@ -49,6 +49,7 @@
     <Compile Include="Data\CellData.cs" />
     <Compile Include="Data\InputData.cs" />
     <Compile Include="Helpers\CollectionHelper.cs" />
+    <Compile Include="Helpers\ImageHelper.cs" />
     <Compile Include="Helpers\Logger.cs" />
     <Compile Include="Main.cs">
       <SubType>Form</SubType>
@@ -56,8 +57,9 @@
     <Compile Include="Main.Designer.cs">
       <DependentUpon>Main.cs</DependentUpon>
     </Compile>
-    <Compile Include="Processing\CellsGetter.cs" />
+    <Compile Include="Processing\ImageGetter.cs" />
     <Compile Include="Processing\ProcessingService.cs" />
+    <Compile Include="Processing\Validator.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <EmbeddedResource Include="Main.resx">

@@ -36,7 +36,10 @@ namespace ImageMosaic
             return new InputData
             {
                 PathToImagesRootFolder = pathToImagesFolder_input.Text,
-                PathToOriginalImage = pathToOriginalImage_input.Text
+                PathToOriginalImage = pathToOriginalImage_input.Text,
+                PixelCount = int.Parse(pixelCount_input.Text),
+                ImageWidth = int.Parse(imageWidth_input.Text),
+                ImageHeight = int.Parse(imageHeight_input.Text)
             };
         }
 
@@ -134,6 +137,33 @@ namespace ImageMosaic
             processCts = new CancellationTokenSource();
             process_button.Text = "GO";
             process_button.Refresh();
+        }
+
+        private void ImageWidth_input_Leave(object sender, EventArgs e)
+        {
+            int.TryParse(imageWidth_input.Text, out var value);
+            if (value != 0)
+            {
+                inputData.ImageWidth = value;
+            }
+        }
+
+        private void ImageHeight_input_Leave(object sender, EventArgs e)
+        {
+            int.TryParse(imageHeight_input.Text, out var value);
+            if (value != 0)
+            {
+                inputData.ImageHeight = value;
+            }
+        }
+
+        private void PixelCount_input_Leave(object sender, EventArgs e)
+        {
+            int.TryParse(pixelCount_input.Text, out var value);
+            if (value != 0)
+            {
+                inputData.PixelCount = value;
+            }
         }
     }
 }
