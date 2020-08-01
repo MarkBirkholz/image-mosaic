@@ -13,14 +13,14 @@ namespace ImageMosaic.Processing
     public class ProcessingService
     {
         private readonly PictureBox outputImageBox;
-        private readonly ImageReader imageReader;
+        private readonly CellsGetter cellsGetter;
         private readonly Logger logger;
 
         public ProcessingService(PictureBox outputImageBox, Logger logger)
         {
             this.outputImageBox = outputImageBox;
             this.logger = logger;
-            imageReader = new ImageReader(logger);
+            cellsGetter = new CellsGetter(logger);
         }
 
         public async Task ProcessAsync(InputData inputData)
@@ -32,10 +32,9 @@ namespace ImageMosaic.Processing
                 return;
             }
 
-            var images = await imageReader.GetImagesAsync(inputData);
-            var imageDataList = ProcessImages(images);
+            var cells = await cellsGetter.GetCellsAsync(inputData);
 
-            var outputImage = GenerateOutputImage(imageDataList);
+            var outputImage = GenerateOutputImage(cells);
             var resizedImage = ResizeBitmap(outputImage, 300, 300);
             DrawImage(resizedImage);
             logger.Log("Done" + Environment.NewLine);
@@ -62,10 +61,10 @@ namespace ImageMosaic.Processing
             return result;
         }
 
-        private Bitmap GenerateOutputImage(ImageData[] imageDataArray)
+        private Bitmap GenerateOutputImage(IReadOnlyList<CellData> cells)
         {
-            var pixelCount = imageDataArray.Length;
-            var imageSize = (int)Math.Ceiling(Math.Sqrt(pixelCount));
+            var cellCount = cells.Count;
+            var imageSize = (int)Math.Ceiling(Math.Sqrt(cellCount));
 
             var outputImage = new Bitmap(imageSize, imageSize);
             for (int i = 0; i < imageSize; i++)
@@ -73,25 +72,14 @@ namespace ImageMosaic.Processing
                 for (int j = 0; j < imageSize; j++)
                 {
                     var pixelPosition = i * imageSize + j;
-                    var pixel = pixelPosition >= imageDataArray.Length ? Color.White : imageDataArray[pixelPosition].MainColor;
+                    var pixel = pixelPosition < cells.Count 
+                        ? cells[pixelPosition].Color 
+                        : Color.White;
                     outputImage.SetPixel(i, j, pixel);
                 }
             }
 
             return outputImage;
-        }
-
-        private ImageData[] ProcessImages(List<Bitmap> images)
-        {
-            var result = new List<ImageData>();
-
-            foreach (var image in images)
-            {
-                var pixel = image.GetPixel(0, 0);
-                result.Add(new ImageData { MainColor = pixel });
-            }
-
-            return result.ToArray();
         }
 
         private bool ValidateData(InputData inputData)

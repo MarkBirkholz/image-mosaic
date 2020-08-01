@@ -46,6 +46,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Data\CellData.cs" />
     <Compile Include="Data\InputData.cs" />
     <Compile Include="Helpers\Helper.cs" />
     <Compile Include="Helpers\Logger.cs" />
@@ -55,7 +56,7 @@
     <Compile Include="Main.Designer.cs">
       <DependentUpon>Main.cs</DependentUpon>
     </Compile>
-    <Compile Include="Processing\ImageReader.cs" />
+    <Compile Include="Processing\CellsGetter.cs" />
     <Compile Include="Processing\ProcessingService.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
