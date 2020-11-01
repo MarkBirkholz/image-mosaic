@@ -34,55 +34,69 @@ namespace ImageMosaic.Processing
                 return;
             }
 
-            var drawOriginalImageAsync = DrawOriginalImageAsync(inputData);
+            var drawOriginalImageAsync = DrawOriginalImageAsync(inputData, ct);
             //var buildMosaicTask = BuildMosaicAsync(inputData, ct);
             await Task.WhenAll(drawOriginalImageAsync);
         }
 
-        private Task DrawOriginalImageAsync(InputData inputData)
+        private Task DrawOriginalImageAsync(InputData inputData, CancellationToken ct)
         {
             var image = imageGetter.GetImage(inputData.PathToOriginalImage, inputData.ImageWidth, inputData.ImageHeight);
             DrawImage(image);
-            PixelizeImage(image, inputData);
-            
-            return Task.CompletedTask;
+            return PixelizeImage(image, inputData, ct);
         }
 
-        private void PixelizeImage(Bitmap originalImage, InputData inputData)
+        private async Task PixelizeImage(Bitmap originalImage, InputData inputData, CancellationToken ct)
         {
             var image = originalImage.Copy();
             var pixelSizeW = image.Width / inputData.PixelCount;
             var pixelSizeH = image.Height / inputData.PixelCount;
+            var tasks = new List<Task>();
             for (var i = 0; i < image.Width; i += pixelSizeW)
             {
                 for (var j = 0; j < image.Height; j += pixelSizeH)
                 {
-                    var pixels = new List<Color>();
-                    for (var k = 0; k < pixelSizeW; k++)
+                    if (ct.IsCancellationRequested)
                     {
-                        for (var l = 0; l < pixelSizeH; l++)
-                        {
-                            var pixel = image.GetPixel(i + k, j + l);
-                            pixels.Add(pixel);
-                        }
+                        return;
                     }
-
-                    var cells = pixels.Select(p => new CellData
-                    {
-                        Color = p
-                    }).ToList();
-                    var part = GenerateImage(cells);
-                    var pixelColor = imageGetter.GetImageColor(part);
-                    for (var k = 0; k < pixelSizeW; k++)
-                    {
-                        for (var l = 0; l < pixelSizeH; l++)
-                        {
-                            image.SetPixel(i + k, j + l, pixelColor);
-                        }
-                    }
-                    DrawImage(image);
+                    logger.Log($"Processing pixel at {i}:{j}");
+                    tasks.Add(SetBigPixel(image, pixelSizeW, pixelSizeH, i, j));
                 }
             }
+
+            await Task.WhenAll(tasks);
+        }
+
+        private Task SetBigPixel(Bitmap image, int pixelSizeW, int pixelSizeH, int i, int j)
+        {
+            var pixels = new List<Color>();
+            for (var k = 0; k < pixelSizeW; k++)
+            {
+                for (var l = 0; l < pixelSizeH; l++)
+                {
+                    var pixel = image.GetPixel(i + k, j + l);
+                    pixels.Add(pixel);
+                }
+            }
+
+            var cells = pixels.Select(p => new CellData
+            {
+                Color = p
+            }).ToList();
+            var part = GenerateImage(cells);
+            var pixelColor = imageGetter.GetImageColor(part);
+            for (var k = 0; k < pixelSizeW; k++)
+            {
+                for (var l = 0; l < pixelSizeH; l++)
+                {
+                    image.SetPixel(i + k, j + l, pixelColor);
+                }
+            }
+            
+            DrawImage(image);
+
+            return Task.CompletedTask;
         }
 
         private async Task BuildMosaicAsync(InputData inputData, CancellationToken ct)

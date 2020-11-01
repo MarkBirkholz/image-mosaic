@@ -115,7 +115,7 @@ namespace ImageMosaic
                 return;
             }
             process_button.Text = "STOP";
-            await Task.Factory.StartNew(() => ProcessAsync(ct).ContinueWith(AfterExecution), ct);
+            await Task.Factory.StartNew(() => ProcessAsync(ct)).ContinueWith(AfterExecution);
         }
 
         private async Task ProcessAsync(CancellationToken ct)
@@ -135,8 +135,10 @@ namespace ImageMosaic
         {
             isRunning = false;
             processCts = new CancellationTokenSource();
-            process_button.Text = "GO";
-            process_button.Refresh();
+            process_button.BeginInvoke((MethodInvoker)(() =>
+            {
+                process_button.Text = "GO";
+            }));
         }
 
         private void ImageWidth_input_Leave(object sender, EventArgs e)
