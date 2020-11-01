@@ -11,7 +11,6 @@ namespace ImageMosaic.Processing
     public class ProcessingService
     {
         private readonly PictureBox outputImageBox;
-        private readonly ImageGetter imageGetter;
         private readonly Logger logger;
         private readonly Validator validator;
 
@@ -19,7 +18,6 @@ namespace ImageMosaic.Processing
         {
             this.outputImageBox = outputImageBox;
             this.logger = logger;
-            imageGetter = new ImageGetter(logger);
             validator = new Validator(logger);
         }
 
@@ -37,7 +35,7 @@ namespace ImageMosaic.Processing
 
         private Task DrawOriginalImageAsync(InputData inputData, CancellationToken ct)
         {
-            var image = imageGetter.GetImage(inputData.PathToOriginalImage, inputData.ImageWidth, inputData.ImageHeight);
+            var image = ImageGetter.GetImage(inputData.PathToOriginalImage, inputData.ImageWidth, inputData.ImageHeight);
             DrawImage(image, image.Width, image.Height);
             return PixelizeImage(image, inputData, ct);
         }
@@ -65,7 +63,7 @@ namespace ImageMosaic.Processing
             logger.Log("End pixelizing");
         }
 
-        private Task SetCellColor(Bitmap image, int cellSizeW, int cellSizeH, int cellPositionX, int cellPositionY)
+        private static Task SetCellColor(Bitmap image, int cellSizeW, int cellSizeH, int cellPositionX, int cellPositionY)
         {
             return Task.Factory.StartNew(() =>
             {
