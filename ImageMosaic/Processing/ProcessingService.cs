@@ -38,7 +38,7 @@ namespace ImageMosaic.Processing
         private Task DrawOriginalImageAsync(InputData inputData, CancellationToken ct)
         {
             var image = imageGetter.GetImage(inputData.PathToOriginalImage, inputData.ImageWidth, inputData.ImageHeight);
-            //DrawImage(image);
+            DrawImage(image, image.Width, image.Height);
             return PixelizeImage(image, inputData, ct);
         }
 
@@ -90,8 +90,9 @@ namespace ImageMosaic.Processing
             });
         }
 
-        private void DrawImage(Bitmap image, int imageWidth, int imageHeight)
+        private void DrawImage(Bitmap originalImage, int imageWidth, int imageHeight)
         {
+            var image = originalImage.Copy();
             outputImageBox.BeginInvoke((MethodInvoker)(() =>
             {
                 outputImageBox.Width = imageWidth;

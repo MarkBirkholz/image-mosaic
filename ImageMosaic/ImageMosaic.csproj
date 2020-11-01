@@ -49,6 +49,7 @@
     <Compile Include="Data\CellData.cs" />
     <Compile Include="Data\InputData.cs" />
     <Compile Include="Helpers\CollectionHelper.cs" />
+    <Compile Include="Helpers\ImageHelper.cs" />
     <Compile Include="Helpers\Logger.cs" />
     <Compile Include="Main.cs">
       <SubType>Form</SubType>
