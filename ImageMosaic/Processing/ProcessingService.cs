@@ -1,9 +1,7 @@
 ﻿using ImageMosaic.Data;
 using ImageMosaic.Helpers;
-using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -34,116 +32,72 @@ namespace ImageMosaic.Processing
                 return;
             }
 
-            var drawOriginalImageAsync = DrawOriginalImageAsync(inputData, ct);
-            //var buildMosaicTask = BuildMosaicAsync(inputData, ct);
-            await Task.WhenAll(drawOriginalImageAsync);
+            await DrawOriginalImageAsync(inputData, ct);
         }
 
         private Task DrawOriginalImageAsync(InputData inputData, CancellationToken ct)
         {
             var image = imageGetter.GetImage(inputData.PathToOriginalImage, inputData.ImageWidth, inputData.ImageHeight);
-            DrawImage(image);
+            //DrawImage(image);
             return PixelizeImage(image, inputData, ct);
         }
 
-        private async Task PixelizeImage(Bitmap originalImage, InputData inputData, CancellationToken ct)
+        private async Task PixelizeImage(Bitmap image, InputData inputData, CancellationToken ct)
         {
-            var image = originalImage.Copy();
-            var pixelSizeW = image.Width / inputData.PixelCount;
-            var pixelSizeH = image.Height / inputData.PixelCount;
-            var tasks = new List<Task>();
-            for (var i = 0; i < image.Width; i += pixelSizeW)
+            logger.Log("Begin pixelizing");
+            var imageWidth = image.Width;
+            var imageHeight = image.Height;
+            var cellSizeW = imageWidth / inputData.PixelCount;
+            var cellSizeH = imageHeight / inputData.PixelCount;
+            for (var cellPositionX = 0; cellPositionX < imageWidth; cellPositionX += cellSizeW)
             {
-                for (var j = 0; j < image.Height; j += pixelSizeH)
+                for (var cellPositionY = 0; cellPositionY < imageHeight; cellPositionY += cellSizeH)
                 {
                     if (ct.IsCancellationRequested)
                     {
                         return;
                     }
-                    logger.Log($"Processing pixel at {i}:{j}");
-                    tasks.Add(SetBigPixel(image, pixelSizeW, pixelSizeH, i, j));
+                    await SetCellColor(image, cellSizeW, cellSizeH, cellPositionX, cellPositionY);
                 }
             }
 
-            await Task.WhenAll(tasks);
+            DrawImage(image, imageWidth, imageHeight);
+            logger.Log("End pixelizing");
         }
 
-        private Task SetBigPixel(Bitmap image, int pixelSizeW, int pixelSizeH, int i, int j)
+        private Task SetCellColor(Bitmap image, int cellSizeW, int cellSizeH, int cellPositionX, int cellPositionY)
         {
-            var pixels = new List<Color>();
-            for (var k = 0; k < pixelSizeW; k++)
+            return Task.Factory.StartNew(() =>
             {
-                for (var l = 0; l < pixelSizeH; l++)
+                var pixels = new List<Color>();
+                for (var pixelPositionX = 0; pixelPositionX < cellSizeW; pixelPositionX++)
                 {
-                    var pixel = image.GetPixel(i + k, j + l);
-                    pixels.Add(pixel);
+                    for (var pixelPositionY = 0; pixelPositionY < cellSizeH; pixelPositionY++)
+                    {
+                        var pixel = image.GetPixel(cellPositionX + pixelPositionX, cellPositionY + pixelPositionY);
+                        pixels.Add(pixel);
+                    }
                 }
-            }
 
-            var cells = pixels.Select(p => new CellData
-            {
-                Color = p
-            }).ToList();
-            var part = GenerateImage(cells);
-            var pixelColor = imageGetter.GetImageColor(part);
-            for (var k = 0; k < pixelSizeW; k++)
-            {
-                for (var l = 0; l < pixelSizeH; l++)
+                var pixelColor = ImageGetter.GetAveragePixel(pixels);
+                for (var pixelPositionX = 0; pixelPositionX < cellSizeW; pixelPositionX++)
                 {
-                    image.SetPixel(i + k, j + l, pixelColor);
+                    for (var pixelPositionY = 0; pixelPositionY < cellSizeH; pixelPositionY++)
+                    {
+                        image.SetPixel(cellPositionX + pixelPositionX, cellPositionY + pixelPositionY, pixelColor);
+                    }
                 }
-            }
-            
-            DrawImage(image);
-
-            return Task.CompletedTask;
+            });
         }
 
-        private async Task BuildMosaicAsync(InputData inputData, CancellationToken ct)
+        private void DrawImage(Bitmap image, int imageWidth, int imageHeight)
         {
-            var cells = await imageGetter.GetCellsAsync(inputData, ct);
-            if (ct.IsCancellationRequested)
-            {
-                logger.Log("Process canceled" + Environment.NewLine);
-                return;
-            }
-
-            var outputImage = GenerateImage(cells);
-            var resizedImage = imageGetter.ResizeBitmap(outputImage, 300, 300);
-            DrawImage(resizedImage);
-            logger.Log("Done" + Environment.NewLine);
-        }
-
-        private void DrawImage(Bitmap image)
-        {
-            var imageCopy = image.Copy();
             outputImageBox.BeginInvoke((MethodInvoker)(() =>
             {
-                outputImageBox.Width = imageCopy.Width;
-                outputImageBox.Height = imageCopy.Height;
-                outputImageBox.Image = imageCopy;
+                outputImageBox.Width = imageWidth;
+                outputImageBox.Height = imageHeight;
+                outputImageBox.Image = image;
             }));
-        }
-
-        private Bitmap GenerateImage(IReadOnlyList<CellData> cells)
-        {
-            var cellCount = cells.Count;
-            var imageSize = (int)Math.Ceiling(Math.Sqrt(cellCount));
-
-            var outputImage = new Bitmap(imageSize, imageSize);
-            for (var i = 0; i < imageSize; i++)
-            {
-                for (var j = 0; j < imageSize; j++)
-                {
-                    var pixelPosition = i * imageSize + j;
-                    var pixel = pixelPosition < cells.Count 
-                        ? cells[pixelPosition].Color 
-                        : Color.White;
-                    outputImage.SetPixel(i, j, pixel);
-                }
-            }
-
-            return outputImage;
         }
     }
 

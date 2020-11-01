@@ -68,5 +68,9 @@ namespace ImageMosaic.Processing
             return result;
         }
 
+        public static Color GetAveragePixel(IEnumerable<Color> pixels)
+        {
+            return pixels.First();
+        }
     }
 }
