@@ -7,7 +7,7 @@ namespace ImageMosaic.Helpers
 {
     public class Logger
     {
-        private TextBox logBox;
+        private readonly TextBox logBox;
 
         public Logger(TextBox logBox)
         {

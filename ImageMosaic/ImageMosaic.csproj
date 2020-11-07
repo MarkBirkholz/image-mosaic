@@ -46,9 +46,10 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Data\Cell.cs" />
     <Compile Include="Data\CellData.cs" />
     <Compile Include="Data\InputData.cs" />
-    <Compile Include="Helpers\CollectionHelper.cs" />
+    <Compile Include="Data\Resolution.cs" />
     <Compile Include="Helpers\ImageHelper.cs" />
     <Compile Include="Helpers\Logger.cs" />
     <Compile Include="Main.cs">
