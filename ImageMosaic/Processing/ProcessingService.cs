@@ -1,4 +1,5 @@
-﻿using ImageMosaic.Data;
+﻿using System;
+using ImageMosaic.Data;
 using ImageMosaic.Helpers;
 using System.Collections.Generic;
 using System.Drawing;
@@ -35,8 +36,8 @@ namespace ImageMosaic.Processing
 
         private Task DrawOriginalImageAsync(InputData inputData, CancellationToken ct)
         {
-            var image = ImageGetter.GetImage(inputData.PathToOriginalImage, inputData.ImageWidth, inputData.ImageHeight);
-            DrawImage(image, image.Width, image.Height);
+            var image = ImageGetter.GetImage(inputData.PathToOriginalImage, inputData);
+            DrawImage(inputData, image, image.Width, image.Height);
             return PixelizeImage(image, inputData, ct);
         }
 
@@ -45,28 +46,33 @@ namespace ImageMosaic.Processing
             logger.Log("Begin pixelizing");
             var imageWidth = image.Width;
             var imageHeight = image.Height;
-            var cellSizeW = imageWidth / inputData.PixelCount;
-            var cellSizeH = imageHeight / inputData.PixelCount;
-            for (var cellPositionX = 0; cellPositionX < imageWidth; cellPositionX += cellSizeW)
+            for (var cellPositionX = 0; cellPositionX < imageWidth; cellPositionX += inputData.CellSize)
             {
-                for (var cellPositionY = 0; cellPositionY < imageHeight; cellPositionY += cellSizeH)
+                for (var cellPositionY = 0; cellPositionY < imageHeight; cellPositionY += inputData.CellSize)
                 {
                     if (ct.IsCancellationRequested)
                     {
                         return;
                     }
-                    await SetCellColor(image, cellSizeW, cellSizeH, cellPositionX, cellPositionY);
+                    await SetCellColor(image, inputData.CellSize, cellPositionX, cellPositionY);
                 }
             }
 
-            DrawImage(image, imageWidth, imageHeight);
+            DrawImage(inputData, image, imageWidth, imageHeight);
             logger.Log("End pixelizing");
         }
 
-        private static Task SetCellColor(Bitmap image, int cellSizeW, int cellSizeH, int cellPositionX, int cellPositionY)
+        private static Task SetCellColor(Bitmap image, int cellSize, int cellPositionX, int cellPositionY)
         {
             return Task.Factory.StartNew(() =>
             {
+                var cellSizeW = image.Width < cellPositionX + cellSize
+                    ? image.Width - cellPositionX
+                    : cellSize;
+                var cellSizeH = image.Height < cellPositionY + cellSize
+                    ? image.Height - cellPositionY
+                    : cellSize;
+
                 var pixels = new List<Color>();
                 for (var pixelPositionX = 0; pixelPositionX < cellSizeW; pixelPositionX++)
                 {
@@ -88,14 +94,16 @@ namespace ImageMosaic.Processing
             });
         }
 
-        private void DrawImage(Bitmap originalImage, int imageWidth, int imageHeight)
+        private void DrawImage(InputData inputData, Bitmap originalImage, int width, int height)
         {
+            var paddingV = Math.Max(inputData.ImagePadding, (int) Math.Round((inputData.ImageBoxHeight - height) / 2f));
+            var paddingH = Math.Max(inputData.ImagePadding, (int) Math.Round((inputData.ImageBoxWidth - width) / 2f));
+            
             var image = originalImage.Copy();
             outputImageBox.BeginInvoke((MethodInvoker)(() =>
             {
-                outputImageBox.Width = imageWidth;
-                outputImageBox.Height = imageHeight;
                 outputImageBox.Image = image;
+                outputImageBox.SetBounds(paddingH, paddingV, width, height);
             }));
         }
     }

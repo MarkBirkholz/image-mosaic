@@ -37,9 +37,10 @@ namespace ImageMosaic
             {
                 PathToImagesRootFolder = pathToImagesFolder_input.Text,
                 PathToOriginalImage = pathToOriginalImage_input.Text,
-                PixelCount = int.Parse(pixelCount_input.Text),
-                ImageWidth = int.Parse(imageWidth_input.Text),
-                ImageHeight = int.Parse(imageHeight_input.Text)
+                CellSize = cellSize.Value,
+                ImageBoxWidth = imageBox.Width - imageBox.Padding.Horizontal,
+                ImageBoxHeight = imageBox.Height - imageBox.Padding.Vertical,
+                ImagePadding = 20
             };
         }
 
@@ -141,31 +142,10 @@ namespace ImageMosaic
             }));
         }
 
-        private void ImageWidth_input_Leave(object sender, EventArgs e)
+        private void cellSize_Scroll(object sender, EventArgs e)
         {
-            int.TryParse(imageWidth_input.Text, out var value);
-            if (value != 0)
-            {
-                inputData.ImageWidth = value;
-            }
-        }
-
-        private void ImageHeight_input_Leave(object sender, EventArgs e)
-        {
-            int.TryParse(imageHeight_input.Text, out var value);
-            if (value != 0)
-            {
-                inputData.ImageHeight = value;
-            }
-        }
-
-        private void PixelCount_input_Leave(object sender, EventArgs e)
-        {
-            int.TryParse(pixelCount_input.Text, out var value);
-            if (value != 0)
-            {
-                inputData.PixelCount = value;
-            }
+            cellSizeValue_label.Text = cellSize.Value.ToString();
+            inputData.CellSize = cellSize.Value;
         }
     }
 }
