@@ -36,6 +36,29 @@ public sealed class TargetGrid
         return Features.AsSpan(cell * n, n);
     }
 
+    /// <summary>The cells of a rectangle of this grid, as a grid of its own.</summary>
+    public TargetGrid Region(CellRect rect)
+    {
+        var n = FeatureGrid * FeatureGrid;
+        var count = rect.Columns * rect.Rows;
+        var features = new Lab[count * n];
+        var means = new Rgb[count];
+        var meansLab = new Lab[count];
+        for (var r = 0; r < rect.Rows; r++)
+        {
+            for (var c = 0; c < rect.Columns; c++)
+            {
+                var from = (rect.Row + r) * Columns + rect.Column + c;
+                var to = r * rect.Columns + c;
+                Array.Copy(Features, from * n, features, to * n, n);
+                means[to] = Means[from];
+                meansLab[to] = MeansLab[from];
+            }
+        }
+
+        return new TargetGrid(rect.Columns, rect.Rows, FeatureGrid, features, means, meansLab);
+    }
+
     /// <summary>Number of rows that keeps the image's aspect ratio with square cells.</summary>
     public static int RowsFor(int columns, int imageWidth, int imageHeight) =>
         Math.Max(1, (int)Math.Round((double)columns * imageHeight / imageWidth));

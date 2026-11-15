@@ -1,17 +1,20 @@
 using System.ComponentModel;
 using System.Drawing.Drawing2D;
+using ImageMosaic.Core;
 using ImageMosaic.Infrastructure;
 
 namespace ImageMosaic.Controls;
 
 /// <summary>
-/// Shows the mosaic (or the original image in the same place) with mouse-wheel zoom around the
-/// cursor, drag to pan and double-click to switch between "fit" and 1:1.
-/// Only the visible part is drawn, from a downscaled copy when zoomed out, so huge images stay smooth.
+/// Shows the mosaic (or the original image in the same place) with mouse-wheel zoom around the cursor,
+/// drag to pan and double-click to switch between "fit" and 1:1. Only the visible part is drawn, from a
+/// downscaled copy when zoomed out, so huge images stay smooth.
+/// In frame mode a rectangle of whole tiles with the mosaic's proportions can be placed and resized.
 /// </summary>
 internal sealed class ZoomableImageView : Control
 {
     private const float MaxZoom = 16f;
+    private const int HandleRadius = 7;
 
     private DisplayImage? mosaic;
     private DisplayImage? original;
@@ -19,8 +22,17 @@ internal sealed class ZoomableImageView : Control
     private bool fitMode = true;
     private float zoom = 1f;
     private PointF offset;
-    private Point? dragStart;
+
+    private DragMode drag;
+    private Point dragStart;
     private PointF dragStartOffset;
+    private CellRect dragStartFrame;
+    private Point frameAnchor; // fixed corner while resizing, in cells (exclusive corner coordinates)
+
+    private CellRect? frame;
+    private int gridColumns;
+    private int gridRows;
+    private int cellSize;
 
     public ZoomableImageView()
     {
@@ -32,11 +44,29 @@ internal sealed class ZoomableImageView : Control
         ForeColor = Color.FromArgb(170, 170, 175);
     }
 
+    private enum DragMode
+    {
+        None,
+        Pan,
+        MoveFrame,
+        ResizeFrame,
+    }
+
     public event EventHandler? ZoomChanged;
+
+    /// <summary>The frame was moved or resized.</summary>
+    public event EventHandler? FrameChanged;
+
+    /// <summary>The frame was double-clicked (confirm).</summary>
+    public event EventHandler? FrameConfirmed;
 
     public float Zoom => zoom;
 
     public bool HasMosaic => mosaic != null;
+
+    /// <summary>The selected rectangle of tiles while in frame mode; null otherwise.</summary>
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public CellRect? Frame => frame;
 
     /// <summary>Show the original image instead of the mosaic (when both exist).</summary>
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
@@ -64,6 +94,11 @@ internal sealed class ZoomableImageView : Control
         var previousSize = ContentSize;
         mosaic?.Dispose();
         mosaic = image;
+        if (image == null)
+        {
+            EndFrame();
+        }
+
         AfterContentChanged(keepView || ContentSize == previousSize);
     }
 
@@ -97,6 +132,51 @@ internal sealed class ZoomableImageView : Control
 
     public void ActualSize() => ZoomAt(new Point(ClientSize.Width / 2, ClientSize.Height / 2), 1f);
 
+    /// <summary>
+    /// Starts frame mode on a mosaic of <paramref name="columns"/> × <paramref name="rows"/> tiles of
+    /// <paramref name="tileSize"/> pixels. The frame starts at a third of the width, centered on the view.
+    /// </summary>
+    public void BeginFrame(int columns, int rows, int tileSize)
+    {
+        gridColumns = columns;
+        gridRows = rows;
+        cellSize = tileSize;
+        var cols = Math.Max(1, columns / 3);
+        var size = FrameSizeFor(cols);
+        var center = ScreenToCell(new PointF(ClientSize.Width / 2f, ClientSize.Height / 2f));
+        frame = Place(new CellRect((int)Math.Round(center.X - size.Width / 2.0), (int)Math.Round(center.Y - size.Height / 2.0), size.Width, size.Height));
+        Invalidate();
+        FrameChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void EndFrame()
+    {
+        if (frame == null)
+        {
+            return;
+        }
+
+        frame = null;
+        drag = DragMode.None;
+        Invalidate();
+        FrameChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Grows (positive) or shrinks (negative) the frame by whole tiles around its center.</summary>
+    public void ResizeFrame(int stepsOfTenPercent)
+    {
+        if (frame is not { } f)
+        {
+            return;
+        }
+
+        var step = Math.Max(1, (int)Math.Round(f.Columns * 0.1));
+        var size = FrameSizeFor(f.Columns + Math.Sign(stepsOfTenPercent) * step);
+        var cx = f.Column + f.Columns / 2.0;
+        var cy = f.Row + f.Rows / 2.0;
+        SetFrame(new CellRect((int)Math.Round(cx - size.Width / 2.0), (int)Math.Round(cy - size.Height / 2.0), size.Width, size.Height));
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
@@ -116,6 +196,12 @@ internal sealed class ZoomableImageView : Control
             return;
         }
 
+        if (frame != null && (ModifierKeys & Keys.Control) == 0)
+        {
+            ResizeFrame(e.Delta);
+            return;
+        }
+
         var factor = MathF.Pow(1.2f, e.Delta / 120f);
         ZoomAt(e.Location, zoom * factor);
     }
@@ -124,36 +210,87 @@ internal sealed class ZoomableImageView : Control
     {
         base.OnMouseDown(e);
         Focus();
-        if (e.Button == MouseButtons.Left && !ContentSize.IsEmpty)
+        if (e.Button != MouseButtons.Left || ContentSize.IsEmpty)
         {
-            dragStart = e.Location;
-            dragStartOffset = offset;
-            Cursor = Cursors.SizeAll;
+            return;
         }
+
+        dragStart = e.Location;
+        dragStartOffset = offset;
+        drag = DragMode.Pan;
+        if (frame is { } f)
+        {
+            dragStartFrame = f;
+            var corner = HitCorner(e.Location, f);
+            if (corner != null)
+            {
+                drag = DragMode.ResizeFrame;
+                frameAnchor = corner.Value;
+            }
+            else if (FrameScreenRect(f).Contains(e.Location))
+            {
+                drag = DragMode.MoveFrame;
+            }
+        }
+
+        Cursor = drag switch
+        {
+            DragMode.ResizeFrame => Cursors.SizeNWSE,
+            _ => Cursors.SizeAll,
+        };
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        if (dragStart is { } start)
+        switch (drag)
         {
-            fitMode = false;
-            offset = new PointF(dragStartOffset.X + e.X - start.X, dragStartOffset.Y + e.Y - start.Y);
-            ClampOffset();
-            Invalidate();
+            case DragMode.Pan:
+                fitMode = false;
+                offset = new PointF(dragStartOffset.X + e.X - dragStart.X, dragStartOffset.Y + e.Y - dragStart.Y);
+                ClampOffset();
+                Invalidate();
+                break;
+            case DragMode.MoveFrame:
+                var dx = (int)Math.Round((e.X - dragStart.X) / (cellSize * zoom));
+                var dy = (int)Math.Round((e.Y - dragStart.Y) / (cellSize * zoom));
+                SetFrame(dragStartFrame with { Column = dragStartFrame.Column + dx, Row = dragStartFrame.Row + dy });
+                break;
+            case DragMode.ResizeFrame:
+                ResizeToward(ScreenToCell(e.Location));
+                break;
+            default:
+                if (frame is { } f)
+                {
+                    Cursor = HitCorner(e.Location, f) != null ? Cursors.SizeNWSE
+                        : FrameScreenRect(f).Contains(e.Location) ? Cursors.SizeAll
+                        : Cursors.Default;
+                }
+
+                break;
         }
     }
 
     protected override void OnMouseUp(MouseEventArgs e)
     {
         base.OnMouseUp(e);
-        dragStart = null;
+        drag = DragMode.None;
         Cursor = Cursors.Default;
     }
 
     protected override void OnMouseDoubleClick(MouseEventArgs e)
     {
         base.OnMouseDoubleClick(e);
+        if (frame is { } f)
+        {
+            if (FrameScreenRect(f).Contains(e.Location))
+            {
+                FrameConfirmed?.Invoke(this, EventArgs.Empty);
+            }
+
+            return;
+        }
+
         if (fitMode)
         {
             ZoomAt(e.Location, 1f);
@@ -194,32 +331,65 @@ internal sealed class ZoomableImageView : Control
         // Visible part of the content, in content pixels.
         var dest = new RectangleF(offset.X, offset.Y, content.Width * zoom, content.Height * zoom);
         var visible = RectangleF.Intersect(dest, ClientRectangle);
-        if (visible.IsEmpty)
+        if (!visible.IsEmpty)
         {
-            return;
+            var contentRect = new RectangleF(
+                (visible.X - offset.X) / zoom,
+                (visible.Y - offset.Y) / zoom,
+                visible.Width / zoom,
+                visible.Height / zoom);
+
+            // Use the downscaled copy while it still has enough pixels for the screen.
+            var bitmap = layer.Full;
+            if (layer.Preview != null && content.Width * zoom <= layer.Preview.Width)
+            {
+                bitmap = layer.Preview;
+            }
+
+            var sx = (float)bitmap.Width / content.Width;
+            var sy = (float)bitmap.Height / content.Height;
+            var source = new RectangleF(contentRect.X * sx, contentRect.Y * sy, contentRect.Width * sx, contentRect.Height * sy);
+            var magnification = zoom / sx;
+
+            g.InterpolationMode = magnification >= 2f ? InterpolationMode.NearestNeighbor : InterpolationMode.HighQualityBilinear;
+            g.PixelOffsetMode = PixelOffsetMode.Half;
+            g.DrawImage(bitmap, visible, source, GraphicsUnit.Pixel);
         }
 
-        var contentRect = new RectangleF(
-            (visible.X - offset.X) / zoom,
-            (visible.Y - offset.Y) / zoom,
-            visible.Width / zoom,
-            visible.Height / zoom);
-
-        // Use the downscaled copy while it still has enough pixels for the screen.
-        var bitmap = layer.Full;
-        if (layer.Preview != null && content.Width * zoom <= layer.Preview.Width)
+        if (frame is { } f)
         {
-            bitmap = layer.Preview;
+            PaintFrame(g, f, dest);
+        }
+    }
+
+    private void PaintFrame(Graphics g, CellRect f, RectangleF image)
+    {
+        var rect = FrameScreenRect(f);
+        g.PixelOffsetMode = PixelOffsetMode.Default;
+        g.SmoothingMode = SmoothingMode.None;
+
+        // Darken everything outside the frame.
+        using (var outside = new Region(image))
+        {
+            outside.Exclude(rect);
+            using var shade = new SolidBrush(Color.FromArgb(150, 0, 0, 0));
+            g.FillRegion(shade, outside);
         }
 
-        var sx = (float)bitmap.Width / content.Width;
-        var sy = (float)bitmap.Height / content.Height;
-        var source = new RectangleF(contentRect.X * sx, contentRect.Y * sy, contentRect.Width * sx, contentRect.Height * sy);
-        var magnification = zoom / sx;
+        using var pen = new Pen(Color.White, 2);
+        g.DrawRectangle(pen, rect.X, rect.Y, rect.Width, rect.Height);
+        using var handle = new SolidBrush(Color.White);
+        foreach (var corner in Corners(rect))
+        {
+            g.FillRectangle(handle, corner.X - 4, corner.Y - 4, 8, 8);
+        }
 
-        g.InterpolationMode = magnification >= 2f ? InterpolationMode.NearestNeighbor : InterpolationMode.HighQualityBilinear;
-        g.PixelOffsetMode = PixelOffsetMode.Half;
-        g.DrawImage(bitmap, visible, source, GraphicsUnit.Pixel);
+        var label = $"{f.Columns} × {f.Rows}";
+        var labelSize = TextRenderer.MeasureText(label, Font);
+        var labelRect = new Rectangle((int)rect.X + 4, (int)rect.Y + 4, labelSize.Width + 6, labelSize.Height + 2);
+        using var labelBack = new SolidBrush(Color.FromArgb(170, 0, 0, 0));
+        g.FillRectangle(labelBack, labelRect);
+        TextRenderer.DrawText(g, label, Font, labelRect, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
     }
 
     private Size ContentSize => mosaic?.Size ?? original?.Size ?? Size.Empty;
@@ -267,5 +437,88 @@ internal sealed class ZoomableImageView : Control
     {
         Invalidate();
         ZoomChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    // ----- Frame geometry (frame coordinates are whole cells) -----
+
+    /// <summary>A frame size with the mosaic's proportions for the given number of columns, fitting the mosaic.</summary>
+    private Size FrameSizeFor(int columns)
+    {
+        columns = Math.Clamp(columns, 1, gridColumns);
+        var rows = (int)Math.Round((double)columns * gridRows / gridColumns);
+        if (rows > gridRows)
+        {
+            rows = gridRows;
+            columns = Math.Clamp((int)Math.Round((double)rows * gridColumns / gridRows), 1, gridColumns);
+        }
+
+        return new Size(columns, Math.Max(1, rows));
+    }
+
+    private CellRect Place(CellRect f) => f with
+    {
+        Column = Math.Clamp(f.Column, 0, gridColumns - f.Columns),
+        Row = Math.Clamp(f.Row, 0, gridRows - f.Rows),
+    };
+
+    private void SetFrame(CellRect f)
+    {
+        var placed = Place(f);
+        if (frame == placed)
+        {
+            return;
+        }
+
+        frame = placed;
+        Invalidate();
+        FrameChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Resizes the frame from the fixed corner toward the cell under the mouse, keeping proportions.</summary>
+    private void ResizeToward(PointF cell)
+    {
+        var dx = cell.X - frameAnchor.X;
+        var dy = cell.Y - frameAnchor.Y;
+        // The larger of the two movements decides, converted to columns.
+        var wanted = Math.Max(Math.Abs(dx), Math.Abs(dy) * gridColumns / gridRows);
+        var size = FrameSizeFor((int)Math.Round(wanted));
+        var column = dx < 0 ? frameAnchor.X - size.Width : frameAnchor.X;
+        var row = dy < 0 ? frameAnchor.Y - size.Height : frameAnchor.Y;
+        SetFrame(new CellRect(column, row, size.Width, size.Height));
+    }
+
+    private RectangleF FrameScreenRect(CellRect f) => new(
+        offset.X + f.Column * cellSize * zoom,
+        offset.Y + f.Row * cellSize * zoom,
+        f.Columns * cellSize * zoom,
+        f.Rows * cellSize * zoom);
+
+    private PointF ScreenToCell(PointF screen) => new(
+        (screen.X - offset.X) / (cellSize * zoom),
+        (screen.Y - offset.Y) / (cellSize * zoom));
+
+    private static PointF[] Corners(RectangleF r) =>
+        [new(r.Left, r.Top), new(r.Right, r.Top), new(r.Left, r.Bottom), new(r.Right, r.Bottom)];
+
+    /// <summary>If the point is on a corner handle, the opposite corner (in cells), which stays fixed while resizing.</summary>
+    private Point? HitCorner(Point point, CellRect f)
+    {
+        var corners = Corners(FrameScreenRect(f));
+        Point[] opposite =
+        [
+            new(f.Column + f.Columns, f.Row + f.Rows),
+            new(f.Column, f.Row + f.Rows),
+            new(f.Column + f.Columns, f.Row),
+            new(f.Column, f.Row),
+        ];
+        for (var i = 0; i < corners.Length; i++)
+        {
+            if (Math.Abs(point.X - corners[i].X) <= HandleRadius && Math.Abs(point.Y - corners[i].Y) <= HandleRadius)
+            {
+                return opposite[i];
+            }
+        }
+
+        return null;
     }
 }

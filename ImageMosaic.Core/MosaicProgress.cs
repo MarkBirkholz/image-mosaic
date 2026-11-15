@@ -7,6 +7,7 @@ public enum MosaicStage
     LoadingTarget,
     Matching,
     Rendering,
+    Analyzing,
     Done,
 }
 
@@ -17,12 +18,13 @@ public readonly record struct MosaicProgress(MosaicStage Stage, int Done, int To
 
     public override string ToString() => Stage switch
     {
-        MosaicStage.Scanning => "Scanning folder…",
-        MosaicStage.LoadingTiles => $"Loading tiles {Done:N0} / {Total:N0}",
-        MosaicStage.LoadingTarget => "Loading target image…",
-        MosaicStage.Matching => $"Matching {Done:N0} / {Total:N0} cells",
-        MosaicStage.Rendering => $"Rendering {Done:N0} / {Total:N0} rows",
-        _ => "Done",
+        MosaicStage.Scanning => T(Texts.Progress.Scanning),
+        MosaicStage.LoadingTiles => TF(Texts.Progress.LoadingTiles, Done, Total),
+        MosaicStage.LoadingTarget => T(Texts.Progress.LoadingTarget),
+        MosaicStage.Matching => TF(Texts.Progress.Matching, Done, Total),
+        MosaicStage.Rendering => TF(Texts.Progress.Rendering, Done, Total),
+        MosaicStage.Analyzing => TF(Texts.Progress.Analyzing, Done, Total),
+        _ => T(Texts.Progress.Done),
     };
 }
 

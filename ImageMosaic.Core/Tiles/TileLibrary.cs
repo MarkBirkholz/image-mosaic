@@ -4,8 +4,14 @@ using ImageMosaic.Core.Imaging;
 
 namespace ImageMosaic.Core.Tiles;
 
-public sealed record TileLibraryOptions(string Folder, int TileSize, int FeatureGrid = 3)
+/// <param name="Folders">Folders with tile photos, each searched recursively. A file found through several folders is used once.</param>
+public sealed record TileLibraryOptions(IReadOnlyList<string> Folders, int TileSize, int FeatureGrid = 3)
 {
+    public TileLibraryOptions(string folder, int tileSize, int featureGrid = 3)
+        : this([folder], tileSize, featureGrid)
+    {
+    }
+
     /// <summary>Where prepared tiles are cached between runs; null disables the cache.</summary>
     public string? CacheDirectory { get; init; } = TileCache.DefaultDirectory;
 
@@ -14,12 +20,12 @@ public sealed record TileLibraryOptions(string Folder, int TileSize, int Feature
 
 public sealed record TileLibraryStats(int FilesFound, int FromCache, int Decoded, int Failed, int Duplicates, TimeSpan Elapsed)
 {
-    public override string ToString() =>
-        $"{FilesFound:N0} files: {FromCache:N0} from cache, {Decoded:N0} decoded, {Failed:N0} unreadable, " +
-        $"{Duplicates:N0} duplicates skipped — {Elapsed.TotalSeconds:N1} s";
+    public override string ToString() => TF(
+        Texts.Library.Stats,
+        FilesFound, FromCache, Decoded, Failed, Duplicates, Elapsed.TotalSeconds);
 }
 
-/// <summary>All usable tiles of a folder, prepared for one tile size.</summary>
+/// <summary>All usable tiles of one or more folders, prepared for one tile size.</summary>
 public sealed class TileLibrary
 {
     public TileLibrary(TileLibraryOptions options, IReadOnlyList<Tile> tiles, TileLibraryStats stats)
@@ -59,7 +65,7 @@ public sealed class TileLibrary
     }
 
     /// <summary>
-    /// Scans the folder, decodes photos in parallel (or takes them from the cache), crops each to a
+    /// Scans the folders, decodes photos in parallel (or takes them from the cache), crops each to a
     /// centered square, scales it to the tile size and skips pixel-identical duplicates.
     /// </summary>
     public static TileLibrary Load(
@@ -70,18 +76,42 @@ public sealed class TileLibrary
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(options.TileSize, 4);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.FeatureGrid, 1);
-        var stopwatch = Stopwatch.StartNew();
+        if (options.Folders.Count == 0)
+        {
+            throw new ArgumentException("At least one tiles folder is required.", nameof(options));
+        }
 
+        var stopwatch = Stopwatch.StartNew();
         progress?.Report(new MosaicProgress(MosaicStage.Scanning, 0, 0));
-        var files = ImageFileScanner.Scan(options.Folder, cancellationToken);
+
+        var folders = options.Folders
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var files = new List<string>();
+        var owners = new List<int>(); // index of the folder whose cache holds each file
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var f = 0; f < folders.Count; f++)
+        {
+            foreach (var file in ImageFileScanner.Scan(folders[f], cancellationToken))
+            {
+                if (seen.Add(file))
+                {
+                    files.Add(file);
+                    owners.Add(f);
+                }
+            }
+        }
 
         var cache = options.CacheDirectory != null ? new TileCache(options.CacheDirectory) : null;
-        var cached = cache?.Load(options.Folder, options.TileSize)
-                     ?? new Dictionary<string, CachedTile>(StringComparer.OrdinalIgnoreCase);
+        var cached = folders
+            .Select(folder => cache?.Load(folder, options.TileSize)
+                              ?? new Dictionary<string, CachedTile>(StringComparer.OrdinalIgnoreCase))
+            .ToArray();
 
         var entries = new CachedTile[files.Count];
+        var decodedPerFolder = new int[folders.Count];
         var fromCache = 0;
-        var decoded = 0;
         var failures = new ConcurrentBag<string>();
         var counter = new ThrottledProgress(progress, MosaicStage.LoadingTiles, files.Count);
         counter.Start();
@@ -106,7 +136,7 @@ public sealed class TileLibrary
                 // Vanished or locked file: treated as unreadable below.
             }
 
-            if (cached.TryGetValue(path, out var hit) && hit.Length == length && hit.LastWriteUtcTicks == ticks)
+            if (cached[owners[i]].TryGetValue(path, out var hit) && hit.Length == length && hit.LastWriteUtcTicks == ticks)
             {
                 entries[i] = hit;
                 Interlocked.Increment(ref fromCache);
@@ -124,49 +154,75 @@ public sealed class TileLibrary
                 }
 
                 entries[i] = new CachedTile(length, ticks, pixels);
-                Interlocked.Increment(ref decoded);
+                Interlocked.Increment(ref decodedPerFolder[owners[i]]);
             }
 
             counter.Increment();
         });
 
-        if (cache != null && (decoded > 0 || cached.Count != files.Count))
+        if (cache != null)
         {
-            var updated = new Dictionary<string, CachedTile>(files.Count, StringComparer.OrdinalIgnoreCase);
-            for (var i = 0; i < files.Count; i++)
-            {
-                updated[files[i]] = entries[i];
-            }
-
-            try
-            {
-                cache.Save(options.Folder, options.TileSize, updated);
-            }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-            {
-                log?.Invoke($"Could not write tile cache: {e.Message}");
-            }
+            SaveCaches(cache, folders, files, owners, entries, cached, decodedPerFolder, options.TileSize, log);
         }
 
         foreach (var failure in failures.OrderBy(f => f).Take(10))
         {
-            log?.Invoke($"Skipped {failure}");
+            log?.Invoke(TF(Texts.Log.Skipped, failure));
         }
 
         if (failures.Count > 10)
         {
-            log?.Invoke($"…and {failures.Count - 10} more unreadable files.");
+            log?.Invoke(TF(Texts.Log.MoreUnreadable, failures.Count - 10));
         }
 
         var (tiles, duplicates) = BuildTiles(files, entries, options, cancellationToken);
         var failed = entries.Count(e => e.Pixels == null);
-        var stats = new TileLibraryStats(files.Count, fromCache, decoded, failed, duplicates, stopwatch.Elapsed);
+        var stats = new TileLibraryStats(files.Count, fromCache, decodedPerFolder.Sum(), failed, duplicates, stopwatch.Elapsed);
         return new TileLibrary(options, tiles, stats);
     }
 
     /// <summary>Turns a photo into a tile: decode at reduced size, crop the centered square, scale down.</summary>
     public static PixelBuffer PrepareTile(string path, int tileSize) =>
         ImageCodec.Load(path, minShortSide: tileSize * 2).CropCenter(1.0).Resize(tileSize, tileSize);
+
+    /// <summary>Rewrites the cache of every folder that gained, changed or lost files.</summary>
+    private static void SaveCaches(
+        TileCache cache,
+        IReadOnlyList<string> folders,
+        IReadOnlyList<string> files,
+        IReadOnlyList<int> owners,
+        CachedTile[] entries,
+        Dictionary<string, CachedTile>[] cached,
+        int[] decodedPerFolder,
+        int tileSize,
+        Action<string>? log)
+    {
+        for (var f = 0; f < folders.Count; f++)
+        {
+            var updated = new Dictionary<string, CachedTile>(StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < files.Count; i++)
+            {
+                if (owners[i] == f)
+                {
+                    updated[files[i]] = entries[i];
+                }
+            }
+
+            if (decodedPerFolder[f] == 0 && updated.Count == cached[f].Count)
+            {
+                continue;
+            }
+
+            try
+            {
+                cache.Save(folders[f], tileSize, updated);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                log?.Invoke(TF(Texts.Log.CacheWriteFailed, e.Message));
+            }
+        }
+    }
 
     private static (List<Tile> Tiles, int Duplicates) BuildTiles(
         IReadOnlyList<string> files,

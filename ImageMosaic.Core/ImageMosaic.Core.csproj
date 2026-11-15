@@ -11,4 +11,9 @@
     <InternalsVisibleTo Include="ImageMosaic.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Interface texts, one file per language; copied next to every program that uses the core. -->
+    <None Include="..\Languages\*.json" Link="Languages\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

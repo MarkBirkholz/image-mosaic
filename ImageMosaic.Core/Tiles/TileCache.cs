@@ -19,8 +19,59 @@ public sealed class TileCache(string directory)
 
     public string Directory { get; } = directory;
 
+    /// <summary>
+    /// %LOCALAPPDATA%\ImageMosaic\TileCache, or the folder in the IMAGEMOSAIC_CACHE_DIR environment variable
+    /// (used to keep test runs away from the real cache).
+    /// </summary>
     public static string DefaultDirectory =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ImageMosaic", "TileCache");
+        Environment.GetEnvironmentVariable("IMAGEMOSAIC_CACHE_DIR") is { Length: > 0 } custom
+            ? custom
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ImageMosaic", "TileCache");
+
+    /// <summary>Number and total size of the cache files (all folders and tile sizes).</summary>
+    public (int Files, long Bytes) GetUsage()
+    {
+        var files = CacheFiles();
+        return (files.Count, files.Sum(f => f.Length));
+    }
+
+    /// <summary>
+    /// Deletes every cache file. Photos are not touched; the next run decodes them again.
+    /// Returns how many files were deleted and how many could not be (e.g. in use).
+    /// </summary>
+    public (int Deleted, int Failed) Clear()
+    {
+        int deleted = 0, failed = 0;
+        foreach (var file in CacheFiles())
+        {
+            try
+            {
+                file.Delete();
+                deleted++;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                failed++;
+            }
+        }
+
+        return (deleted, failed);
+    }
+
+    private List<FileInfo> CacheFiles()
+    {
+        var directory = new DirectoryInfo(Directory);
+        if (!directory.Exists)
+        {
+            return [];
+        }
+
+        // Only our own files: finished caches and leftovers of interrupted writes.
+        return directory.EnumerateFiles("tiles_*.bin")
+            .Concat(directory.EnumerateFiles("tiles_*.bin.tmp"))
+            .DistinctBy(f => f.FullName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
 
     public string GetCacheFile(string folder, int tileSize)
     {

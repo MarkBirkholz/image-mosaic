@@ -1,5 +1,6 @@
 using ImageMosaic.Core.Imaging;
 using ImageMosaic.Core.Mosaic;
+using ImageMosaic.Core.Suggestions;
 
 namespace ImageMosaic.Core;
 
@@ -15,8 +16,8 @@ public sealed record MosaicSettings
     /// <summary>The picture the mosaic reproduces.</summary>
     public string TargetImagePath { get; init; } = "";
 
-    /// <summary>Folder (searched recursively) with the photos used as tiles.</summary>
-    public string TilesFolder { get; init; } = "";
+    /// <summary>Folders (each searched recursively) with the photos used as tiles.</summary>
+    public IReadOnlyList<string> TilesFolders { get; init; } = [];
 
     /// <summary>Number of tiles across; the number of rows follows from the target's aspect ratio.</summary>
     public int Columns { get; init; } = 80;
@@ -35,7 +36,16 @@ public sealed record MosaicSettings
 
     public double Overlay { get; init; } = 0.2;
 
+    /// <summary>0–1: soft transition between neighbouring tiles (0 = sharp edges).</summary>
+    public double EdgeBlend { get; init; }
+
     public int Seed { get; init; } = 1;
+
+    /// <summary>Weights for ranking suggested targets (not used when building).</summary>
+    public SuggestionWeights SuggestionWeights { get; init; } = SuggestionWeights.Default;
+
+    /// <summary>Interface language: "en", "ru", or null for the system language (not used when building).</summary>
+    public string? Language { get; init; }
 
     public MatchOptions ToMatchOptions() => new()
     {
@@ -48,6 +58,7 @@ public sealed record MosaicSettings
     {
         ColorCorrection = ColorCorrection,
         Overlay = Overlay,
+        EdgeBlend = EdgeBlend,
     };
 
     /// <summary>Checks the settings and the paths they refer to. Returns human-readable problems; empty when valid.</summary>
@@ -56,56 +67,63 @@ public sealed record MosaicSettings
         var errors = new List<string>();
         if (string.IsNullOrWhiteSpace(TargetImagePath))
         {
-            errors.Add("Choose the target image.");
+            errors.Add(T(Texts.Validation.ChooseTarget));
         }
         else if (!File.Exists(TargetImagePath))
         {
-            errors.Add($"Target image not found: {TargetImagePath}");
+            errors.Add(TF(Texts.Validation.TargetNotFound, TargetImagePath));
         }
         else if (!ImageCodec.IsSupported(TargetImagePath))
         {
-            errors.Add($"Unsupported image type: {Path.GetExtension(TargetImagePath)}");
+            errors.Add(TF(Texts.Validation.UnsupportedType, Path.GetExtension(TargetImagePath)));
         }
 
-        if (string.IsNullOrWhiteSpace(TilesFolder))
-        {
-            errors.Add("Choose the folder with tile photos.");
-        }
-        else if (!Directory.Exists(TilesFolder))
-        {
-            errors.Add($"Tiles folder not found: {TilesFolder}");
-        }
+        errors.AddRange(ValidateTilesFolders());
 
         if (Columns is < MinColumns or > MaxColumns)
         {
-            errors.Add($"Columns must be between {MinColumns} and {MaxColumns}.");
+            errors.Add(TF(Texts.Validation.ColumnsRange, MinColumns, MaxColumns));
         }
 
         if (TileSize is < MinTileSize or > MaxTileSize)
         {
-            errors.Add($"Tile size must be between {MinTileSize} and {MaxTileSize} px.");
+            errors.Add(TF(Texts.Validation.TileSizeRange, MinTileSize, MaxTileSize));
         }
 
         if (FeatureGrid is < 1 or > 8)
         {
-            errors.Add("Feature grid must be between 1 and 8.");
+            errors.Add(T(Texts.Validation.GridRange));
         }
 
         if (MinRepeatDistance < 0)
         {
-            errors.Add("Repeat distance cannot be negative.");
+            errors.Add(T(Texts.Validation.RepeatNegative));
         }
 
         if (UsagePenalty < 0)
         {
-            errors.Add("Usage penalty cannot be negative.");
+            errors.Add(T(Texts.Validation.VarietyNegative));
         }
 
-        if (ColorCorrection is < 0 or > 1 || Overlay is < 0 or > 1)
+        if (ColorCorrection is < 0 or > 1 || Overlay is < 0 or > 1 || EdgeBlend is < 0 or > 1)
         {
-            errors.Add("Color correction and overlay must be between 0 and 1.");
+            errors.Add(T(Texts.Validation.ColorsRange));
         }
 
+        return errors;
+    }
+
+    /// <summary>Checks only the tile folders (enough for loading a tile library).</summary>
+    public IReadOnlyList<string> ValidateTilesFolders()
+    {
+        var errors = new List<string>();
+        var folders = TilesFolders.Where(f => !string.IsNullOrWhiteSpace(f)).ToList();
+        if (folders.Count == 0)
+        {
+            errors.Add(T(Texts.Validation.AddFolder));
+        }
+
+        errors.AddRange(folders.Where(f => !Directory.Exists(f)).Select(f => TF(Texts.Validation.FolderNotFound, f)));
         return errors;
     }
 

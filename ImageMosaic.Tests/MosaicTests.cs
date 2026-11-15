@@ -212,7 +212,7 @@ public class MosaicSettingsTests
     {
         var errors = new MosaicSettings().Validate();
 
-        Assert.Contains(errors, e => e.Contains("target image", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(errors, e => e.Contains("target picture", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(errors, e => e.Contains("folder", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -223,7 +223,7 @@ public class MosaicSettingsTests
         var settings = new MosaicSettings
         {
             TargetImagePath = temp.SaveImage("t.png", new PixelBuffer(4, 4)),
-            TilesFolder = temp.Path,
+            TilesFolders = [temp.Path],
             Columns = 1,
             TileSize = 1000,
             Overlay = 2,
@@ -238,7 +238,7 @@ public class MosaicSettingsTests
     public void ValidSettingsHaveNoErrors()
     {
         using var temp = new TempFolder();
-        var settings = new MosaicSettings { TargetImagePath = temp.SaveImage("t.jpg", new PixelBuffer(4, 4)), TilesFolder = temp.Path };
+        var settings = new MosaicSettings { TargetImagePath = temp.SaveImage("t.jpg", new PixelBuffer(4, 4)), TilesFolders = [temp.Path] };
 
         Assert.Empty(settings.Validate());
     }
@@ -268,7 +268,7 @@ public class MosaicBuilderTests
         var settings = new MosaicSettings
         {
             TargetImagePath = target,
-            TilesFolder = Path.Combine(temp.Path, "tiles"),
+            TilesFolders = [Path.Combine(temp.Path, "tiles")],
             Columns = 16,
             TileSize = 8,
             MinRepeatDistance = 1,
@@ -298,7 +298,7 @@ public class MosaicBuilderTests
             temp.SaveImage(Path.Combine("tiles", $"{i}.png"), PixelBuffer.Solid(10, 10, color));
         }
 
-        var settings = new MosaicSettings { TargetImagePath = target, TilesFolder = Path.Combine(temp.Path, "tiles"), Columns = 8, TileSize = 8 };
+        var settings = new MosaicSettings { TargetImagePath = target, TilesFolders = [Path.Combine(temp.Path, "tiles")], Columns = 8, TileSize = 8 };
         var first = new MosaicBuilder(null).Build(settings);
 
         var second = MosaicBuilder.Rerender(first, colorCorrection: 1, overlay: 0.5);
@@ -321,7 +321,7 @@ public class MosaicBuilderTests
         var settings = new MosaicSettings
         {
             TargetImagePath = temp.SaveImage("tall.png", new PixelBuffer(10, 100)),
-            TilesFolder = temp.Path,
+            TilesFolders = [temp.Path],
             Columns = 500,
             TileSize = 256,
         };
@@ -336,7 +336,7 @@ public class MosaicBuilderTests
         using var temp = new TempFolder();
         var target = temp.SaveImage("target.png", new PixelBuffer(8, 8));
         Directory.CreateDirectory(temp.File(Path.Combine("empty", "x")));
-        var settings = new MosaicSettings { TargetImagePath = target, TilesFolder = Path.Combine(temp.Path, "empty"), Columns = 4, TileSize = 8 };
+        var settings = new MosaicSettings { TargetImagePath = target, TilesFolders = [Path.Combine(temp.Path, "empty")], Columns = 4, TileSize = 8 };
 
         Assert.Throws<InvalidOperationException>(() => new MosaicBuilder(null).Build(settings));
     }
