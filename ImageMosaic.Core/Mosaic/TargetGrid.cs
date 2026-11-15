@@ -59,9 +59,15 @@ public sealed class TargetGrid
         return new TargetGrid(rect.Columns, rect.Rows, FeatureGrid, features, means, meansLab);
     }
 
-    /// <summary>Number of rows that keeps the image's aspect ratio with square cells.</summary>
-    public static int RowsFor(int columns, int imageWidth, int imageHeight) =>
-        Math.Max(1, (int)Math.Round((double)columns * imageHeight / imageWidth));
+    /// <summary>
+    /// Columns and rows of square cells for an image, with <paramref name="longSide"/> cells along its longer
+    /// side, so landscape and portrait pictures get the same detail.
+    /// </summary>
+    public static (int Columns, int Rows) SizeFor(int longSide, int imageWidth, int imageHeight)
+    {
+        var shortSide = Math.Max(1, (int)Math.Round((double)longSide * Math.Min(imageWidth, imageHeight) / Math.Max(imageWidth, imageHeight)));
+        return imageWidth >= imageHeight ? (longSide, shortSide) : (shortSide, longSide);
+    }
 
     public static TargetGrid FromImage(PixelBuffer image, int columns, int rows, int featureGrid)
     {

@@ -58,7 +58,7 @@ public sealed class SuggestionAnalysis
             content.ToHashCode().ToString("X8", CultureInfo.InvariantCulture),
             library.TileSize,
             library.FeatureGrid,
-            options.Columns,
+            options.LongSideTiles,
             options.MaxCandidates,
             m.MinRepeatDistance,
             m.UsagePenalty.ToString(CultureInfo.InvariantCulture),

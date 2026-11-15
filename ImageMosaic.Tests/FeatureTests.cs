@@ -64,7 +64,7 @@ public class MultipleFoldersTests
         {
             TargetImagePath = target,
             TilesFolders = [Path.Combine(temp.Path, "dark"), Path.Combine(temp.Path, "light")],
-            Columns = 8,
+            LongSideTiles = 8,
             TileSize = 8,
             MinRepeatDistance = 0,
         };

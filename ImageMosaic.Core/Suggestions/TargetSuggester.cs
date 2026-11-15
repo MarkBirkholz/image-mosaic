@@ -6,7 +6,7 @@ using ImageMosaic.Core.Tiles;
 
 namespace ImageMosaic.Core.Suggestions;
 
-/// <summary>Criterion weights, 0–100; only their ratios matter.</summary>
+/// <summary>What the suggestions prefer: criterion weights (0–100, only their ratios matter) and a detail range.</summary>
 public sealed record SuggestionWeights
 {
     public static SuggestionWeights Default { get; } = new();
@@ -17,18 +17,28 @@ public sealed record SuggestionWeights
 
     public double Contrast { get; init; } = 20;
 
-    /// <summary>−100…100: negative prefers simpler photos, positive more detailed ones, 0 ignores detail.</summary>
-    public double Detail { get; init; }
+    /// <summary>
+    /// 0–100: photos are sorted by detail, and only those from this percent of them up to <see cref="DetailTo"/>
+    /// are suggested; 0 keeps even the simplest photos.
+    /// </summary>
+    public double DetailFrom { get; init; }
+
+    /// <summary>0–100: upper end of the detail range; 100 keeps even the most detailed photos.</summary>
+    public double DetailTo { get; init; } = 100;
 
     /// <summary>Nothing chosen: color match, color variety and contrast then count equally.</summary>
     [JsonIgnore]
-    public bool AllZero => ColorMatch <= 0 && ColorVariety <= 0 && Contrast <= 0 && Detail == 0;
+    public bool AllZero => ColorMatch <= 0 && ColorVariety <= 0 && Contrast <= 0;
+
+    /// <summary>The detail range leaves some photos out.</summary>
+    [JsonIgnore]
+    public bool LimitsDetail => DetailFrom > 0 || DetailTo < 100;
 }
 
 public sealed record SuggestionOptions
 {
-    /// <summary>Columns of the trial mosaic each candidate is measured with.</summary>
-    public int Columns { get; init; } = 40;
+    /// <summary>Tiles along the longer side of the trial mosaic each candidate is measured with.</summary>
+    public int LongSideTiles { get; init; } = 40;
 
     /// <summary>Upper limit of photos analyzed; larger libraries are sampled evenly.</summary>
     public int MaxCandidates { get; init; } = 1500;
@@ -130,12 +140,12 @@ public static class TargetSuggester
         return results.OrderBy(r => r.Path, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    /// <summary>Fast: scores photos with marks calibrated to them, best first.</summary>
+    /// <summary>Fast: scores the photos inside the detail range with marks calibrated to all photos, best first.</summary>
     public static IReadOnlyList<TargetSuggestion> Rank(IEnumerable<TargetCandidate> candidates, SuggestionWeights weights, int count)
     {
         var list = candidates.ToList();
         var scale = ScoreScale.FromCandidates(list.Select(c => c.Metrics).ToList());
-        return list
+        return InDetailRange(list, weights)
             .Select(c =>
             {
                 var (score, notes) = Score(c.Metrics, weights, scale);
@@ -147,10 +157,32 @@ public static class TargetSuggester
             .ToList();
     }
 
+    /// <summary>
+    /// The candidates whose place among all candidates sorted by detail, in percent, lies within the weights'
+    /// detail range: 10–90 leaves out the tenth with the least and the tenth with the most detail.
+    /// </summary>
+    public static IEnumerable<TargetCandidate> InDetailRange(IReadOnlyList<TargetCandidate> candidates, SuggestionWeights weights)
+    {
+        if (!weights.LimitsDetail)
+        {
+            return candidates;
+        }
+
+        var from = Math.Min(weights.DetailFrom, weights.DetailTo);
+        var to = Math.Max(weights.DetailFrom, weights.DetailTo);
+        return candidates
+            .OrderBy(c => c.Metrics.Detail)
+            .ThenBy(c => c.Path, StringComparer.OrdinalIgnoreCase)
+            .Where((_, i) =>
+            {
+                var place = (i + 0.5) * 100 / candidates.Count;
+                return place >= from && place <= to;
+            });
+    }
+
     public static TargetMetrics Measure(PixelBuffer image, TileLibrary library, SuggestionOptions options)
     {
-        var columns = options.Columns;
-        var rows = TargetGrid.RowsFor(columns, image.Width, image.Height);
+        var (columns, rows) = TargetGrid.SizeFor(options.LongSideTiles, image.Width, image.Height);
         var grid = TargetGrid.FromImage(image, columns, rows, library.FeatureGrid);
         var plan = TileMatcher.Match(grid, library, options.Match);
 
@@ -183,13 +215,13 @@ public static class TargetSuggester
     public static (double Score, IReadOnlyList<SuggestionNote> Notes) Score(TargetMetrics m) =>
         Score(m, SuggestionWeights.Default, ScoreScale.Absolute);
 
-    /// <summary>Weighted average of the four marks, 0–100.</summary>
+    /// <summary>Weighted average of the color match, color variety and contrast marks, 0–100; detail only gets a note.</summary>
     public static (double Score, IReadOnlyList<SuggestionNote> Notes) Score(TargetMetrics m, SuggestionWeights weights, ScoreScale scale)
     {
         var p = scale.Parts(m);
         if (weights.AllZero)
         {
-            weights = new SuggestionWeights { ColorMatch = 1, ColorVariety = 1, Contrast = 1, Detail = 0 };
+            weights = weights with { ColorMatch = 1, ColorVariety = 1, Contrast = 1 };
         }
 
         var marks = new (double Weight, double Mark)[]
@@ -197,8 +229,6 @@ public static class TargetSuggester
             (weights.ColorMatch, p.ColorMatch),
             (weights.ColorVariety, p.ColorVariety),
             (weights.Contrast, p.Contrast),
-            // Negative detail weight rewards simpler photos.
-            (Math.Abs(weights.Detail), weights.Detail >= 0 ? p.Detail : 1 - p.Detail),
         };
         var totalWeight = marks.Sum(x => Math.Max(0, x.Weight));
         var quality = marks.Sum(x => Math.Max(0, x.Weight) * x.Mark) / totalWeight;

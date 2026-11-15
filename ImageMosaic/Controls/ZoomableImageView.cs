@@ -9,7 +9,8 @@ namespace ImageMosaic.Controls;
 /// Shows the mosaic (or the original image in the same place) with mouse-wheel zoom around the cursor,
 /// drag to pan and double-click to switch between "fit" and 1:1. Only the visible part is drawn, from a
 /// downscaled copy when zoomed out, so huge images stay smooth.
-/// In frame mode a rectangle of whole tiles with the mosaic's proportions can be placed and resized.
+/// In frame mode a rectangle of whole tiles with the mosaic's proportions can be placed and resized, and a
+/// sharper rendering of the framed part can be shown inside it.
 /// </summary>
 internal sealed class ZoomableImageView : Control
 {
@@ -30,6 +31,8 @@ internal sealed class ZoomableImageView : Control
     private Point frameAnchor; // fixed corner while resizing, in cells (exclusive corner coordinates)
 
     private CellRect? frame;
+    private DisplayImage? framePreview;
+    private CellRect framePreviewRect;
     private int gridColumns;
     private int gridRows;
     private int cellSize;
@@ -87,10 +90,12 @@ internal sealed class ZoomableImageView : Control
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public string EmptyText { get; set; } = "";
 
-    /// <summary>Replaces the mosaic. The view keeps its zoom and position when the size is unchanged.</summary>
+    /// <summary>
+    /// Replaces the mosaic of the same picture. The same part of the picture stays on screen at the same scale,
+    /// even when the new mosaic has another size in pixels.
+    /// </summary>
     public void SetMosaic(DisplayImage? image)
     {
-        var keepView = image != null && mosaic != null && image.Size == mosaic.Size;
         var previousSize = ContentSize;
         mosaic?.Dispose();
         mosaic = image;
@@ -99,7 +104,22 @@ internal sealed class ZoomableImageView : Control
             EndFrame();
         }
 
-        AfterContentChanged(keepView || ContentSize == previousSize);
+        var size = ContentSize;
+        if (fitMode || previousSize.IsEmpty || size.IsEmpty)
+        {
+            AfterContentChanged(keepView: false);
+        }
+        else if (size != previousSize)
+        {
+            // The picture keeps its size on screen: the offset stays, the zoom follows the pixel size.
+            zoom = Math.Clamp(zoom * previousSize.Width / size.Width, 0.001f, MaxZoom);
+            ClampOffset();
+            Changed();
+        }
+        else
+        {
+            Invalidate();
+        }
     }
 
     public void SetOriginal(DisplayImage? image)
@@ -157,9 +177,22 @@ internal sealed class ZoomableImageView : Control
         }
 
         frame = null;
+        SetFramePreview(null, default);
         drag = DragMode.None;
         Invalidate();
         FrameChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Shows <paramref name="image"/> inside the frame while the frame is at <paramref name="rect"/>, instead of
+    /// the mosaic's own pixels there; null removes it. The view takes ownership of the image.
+    /// </summary>
+    public void SetFramePreview(DisplayImage? image, CellRect rect)
+    {
+        framePreview?.Dispose();
+        framePreview = image;
+        framePreviewRect = rect;
+        Invalidate();
     }
 
     /// <summary>Grows (positive) or shrinks (negative) the frame by whole tiles around its center.</summary>
@@ -183,6 +216,7 @@ internal sealed class ZoomableImageView : Control
         {
             mosaic?.Dispose();
             original?.Dispose();
+            framePreview?.Dispose();
         }
 
         base.Dispose(disposing);
@@ -328,38 +362,54 @@ internal sealed class ZoomableImageView : Control
             return;
         }
 
-        // Visible part of the content, in content pixels.
         var dest = new RectangleF(offset.X, offset.Y, content.Width * zoom, content.Height * zoom);
-        var visible = RectangleF.Intersect(dest, ClientRectangle);
-        if (!visible.IsEmpty)
-        {
-            var contentRect = new RectangleF(
-                (visible.X - offset.X) / zoom,
-                (visible.Y - offset.Y) / zoom,
-                visible.Width / zoom,
-                visible.Height / zoom);
-
-            // Use the downscaled copy while it still has enough pixels for the screen.
-            var bitmap = layer.Full;
-            if (layer.Preview != null && content.Width * zoom <= layer.Preview.Width)
-            {
-                bitmap = layer.Preview;
-            }
-
-            var sx = (float)bitmap.Width / content.Width;
-            var sy = (float)bitmap.Height / content.Height;
-            var source = new RectangleF(contentRect.X * sx, contentRect.Y * sy, contentRect.Width * sx, contentRect.Height * sy);
-            var magnification = zoom / sx;
-
-            g.InterpolationMode = magnification >= 2f ? InterpolationMode.NearestNeighbor : InterpolationMode.HighQualityBilinear;
-            g.PixelOffsetMode = PixelOffsetMode.Half;
-            g.DrawImage(bitmap, visible, source, GraphicsUnit.Pixel);
-        }
+        DrawLayer(g, layer, dest);
 
         if (frame is { } f)
         {
+            // The preview belongs to one position and size of the frame; until a new one is ready, the mosaic shows.
+            if (framePreview != null && f == framePreviewRect && !showOriginal)
+            {
+                DrawLayer(g, framePreview, FrameScreenRect(f));
+            }
+
             PaintFrame(g, f, dest);
         }
+    }
+
+    /// <summary>Draws the part of <paramref name="layer"/> that is on screen when the whole layer covers <paramref name="dest"/>.</summary>
+    private void DrawLayer(Graphics g, DisplayImage layer, RectangleF dest)
+    {
+        var visible = RectangleF.Intersect(dest, ClientRectangle);
+        if (visible.IsEmpty)
+        {
+            return;
+        }
+
+        // Screen pixels per layer pixel, and the visible part in layer pixels.
+        var scaleX = dest.Width / layer.Size.Width;
+        var scaleY = dest.Height / layer.Size.Height;
+        var layerRect = new RectangleF(
+            (visible.X - dest.X) / scaleX,
+            (visible.Y - dest.Y) / scaleY,
+            visible.Width / scaleX,
+            visible.Height / scaleY);
+
+        // Use the downscaled copy while it still has enough pixels for the screen.
+        var bitmap = layer.Full;
+        if (layer.Preview != null && dest.Width <= layer.Preview.Width)
+        {
+            bitmap = layer.Preview;
+        }
+
+        var sx = (float)bitmap.Width / layer.Size.Width;
+        var sy = (float)bitmap.Height / layer.Size.Height;
+        var source = new RectangleF(layerRect.X * sx, layerRect.Y * sy, layerRect.Width * sx, layerRect.Height * sy);
+        var magnification = scaleX / sx;
+
+        g.InterpolationMode = magnification >= 2f ? InterpolationMode.NearestNeighbor : InterpolationMode.HighQualityBilinear;
+        g.PixelOffsetMode = PixelOffsetMode.Half;
+        g.DrawImage(bitmap, visible, source, GraphicsUnit.Pixel);
     }
 
     private void PaintFrame(Graphics g, CellRect f, RectangleF image)

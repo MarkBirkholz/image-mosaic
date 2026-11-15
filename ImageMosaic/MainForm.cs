@@ -18,8 +18,13 @@ internal sealed partial class MainForm : Form
 
     private readonly MosaicBuilder builder;
     private readonly System.Windows.Forms.Timer rerenderTimer = new() { Interval = 120 };
+    // The framed part is shown with bigger tiles once the frame has stopped changing for this long.
+    private readonly System.Windows.Forms.Timer fragmentTimer = new() { Interval = 500 };
+    private readonly FragmentTileCache fragmentTiles = new();
     private CancellationTokenSource? buildCts;
     private CancellationTokenSource? rerenderCts;
+    private CancellationTokenSource? fragmentCts;
+    private FragmentRender? fragmentRender;
     private MosaicResult? result;
     private ImageInfo? targetInfo;
     private string? shownTargetPath;
@@ -66,6 +71,7 @@ internal sealed partial class MainForm : Form
     {
         buildCts?.Cancel();
         rerenderCts?.Cancel();
+        fragmentCts?.Cancel();
         SettingsStore.Save(CurrentSettings());
         base.OnFormClosing(e);
     }
@@ -89,13 +95,14 @@ internal sealed partial class MainForm : Form
             }
         };
 
-        columnsInput.ValueChanged += (_, _) => UpdateOutputSize();
+        longSideInput.ValueChanged += (_, _) => UpdateOutputSize();
         tileSizeInput.ValueChanged += (_, _) => UpdateOutputSize();
         varietyBar.ValueChanged += (_, _) => UpdateSliderLabels();
         correctionBar.ValueChanged += (_, _) => LookChanged();
         overlayBar.ValueChanged += (_, _) => LookChanged();
         edgesBar.ValueChanged += (_, _) => LookChanged();
         rerenderTimer.Tick += async (_, _) => await RerenderAsync();
+        fragmentTimer.Tick += async (_, _) => await PreviewFragmentAsync();
 
         buildButton.Click += async (_, _) => await BuildOrCancelAsync();
         saveButton.Click += async (_, _) => await SaveAsync();
@@ -109,7 +116,7 @@ internal sealed partial class MainForm : Form
         fitButton.Click += (_, _) => viewer.FitToWindow();
         actualSizeButton.Click += (_, _) => viewer.ActualSize();
         viewer.ZoomChanged += (_, _) => zoomLabel.Text = viewer.Zoom.ToString("P0", CultureInfo.CurrentCulture);
-        viewer.FrameChanged += (_, _) => ShowFragmentInfo();
+        viewer.FrameChanged += (_, _) => OnFrameChanged();
         viewer.FrameConfirmed += async (_, _) => await SaveFragmentAsync();
         languageBox.SelectedIndexChanged += (_, _) =>
         {
@@ -165,14 +172,14 @@ internal sealed partial class MainForm : Form
             foldersList.Items.Add(folder);
         }
 
-        columnsInput.Value = Math.Clamp(s.Columns, (int)columnsInput.Minimum, (int)columnsInput.Maximum);
+        longSideInput.Value = Math.Clamp(s.LongSideTiles, (int)longSideInput.Minimum, (int)longSideInput.Maximum);
         tileSizeInput.Value = Math.Clamp(s.TileSize, (int)tileSizeInput.Minimum, (int)tileSizeInput.Maximum);
         gridInput.Value = Math.Clamp(s.FeatureGrid, (int)gridInput.Minimum, (int)gridInput.Maximum);
         repeatInput.Value = Math.Clamp(s.MinRepeatDistance, (int)repeatInput.Minimum, (int)repeatInput.Maximum);
         varietyBar.Value = Math.Clamp((int)Math.Round(s.UsagePenalty), varietyBar.Minimum, varietyBar.Maximum);
         correctionBar.Value = PercentSteps.ToSteps(s.ColorCorrection);
         overlayBar.Value = PercentSteps.ToSteps(s.Overlay);
-        edgesBar.Value = PercentSteps.ToSteps(s.EdgeBlend);
+        edgesBar.Value = Math.Clamp((int)Math.Round(s.EdgeBlend * 100), edgesBar.Minimum, edgesBar.Maximum);
         suggestionWeights = s.SuggestionWeights ?? SuggestionWeights.Default;
     }
 
@@ -180,14 +187,14 @@ internal sealed partial class MainForm : Form
     {
         TargetImagePath = targetBox.Text.Trim().Trim('"'),
         TilesFolders = TileFolders(),
-        Columns = (int)columnsInput.Value,
+        LongSideTiles = (int)longSideInput.Value,
         TileSize = (int)tileSizeInput.Value,
         FeatureGrid = (int)gridInput.Value,
         MinRepeatDistance = (int)repeatInput.Value,
         UsagePenalty = varietyBar.Value,
         ColorCorrection = PercentSteps.ToFraction(correctionBar.Value),
         Overlay = PercentSteps.ToFraction(overlayBar.Value),
-        EdgeBlend = PercentSteps.ToFraction(edgesBar.Value),
+        EdgeBlend = edgesBar.Value / 100.0,
         SuggestionWeights = suggestionWeights,
         Language = Lang.Current,
     };
@@ -197,7 +204,7 @@ internal sealed partial class MainForm : Form
         varietyValue.Text = varietyBar.Value.ToString(CultureInfo.CurrentCulture);
         correctionValue.Text = $"{PercentSteps.ToPercent(correctionBar.Value)}%";
         overlayValue.Text = $"{PercentSteps.ToPercent(overlayBar.Value)}%";
-        edgesValue.Text = $"{PercentSteps.ToPercent(edgesBar.Value)}%";
+        edgesValue.Text = $"{edgesBar.Value}%";
     }
 
     private void UpdateOutputSize()
@@ -210,10 +217,10 @@ internal sealed partial class MainForm : Form
         }
 
         var settings = CurrentSettings();
-        var (width, height, rows) = settings.OutputSize(info.Width, info.Height);
+        var (width, height, columns, rows) = settings.OutputSize(info.Width, info.Height);
         var tooBig = (long)width * height > MosaicSettings.MaxOutputPixels;
         outputSizeLabel.Text =
-            TF(Texts.Main.OutputTiles, settings.Columns, rows, settings.Columns * rows) + "\n" +
+            TF(Texts.Main.OutputTiles, columns, rows, columns * rows) + "\n" +
             TF(Texts.Main.OutputSize, width, height, (double)width * height / 1_000_000) +
             (tooBig ? T(Texts.Main.OutputTooBig) : "");
         outputSizeLabel.ForeColor = tooBig ? Color.Firebrick : SystemColors.GrayText;
@@ -590,6 +597,10 @@ internal sealed partial class MainForm : Form
             {
                 result = updated;
                 viewer.SetMosaic(display);
+                if (viewer.Frame != null)
+                {
+                    RestartFragmentPreview();
+                }
             }
             else
             {
@@ -706,7 +717,103 @@ internal sealed partial class MainForm : Form
         }
 
         var size = FragmentTileSize(current, frame);
-        SetStatus(() => TF(Texts.Main.FragmentInfo, frame.Columns, frame.Rows, frame.Columns * size, frame.Rows * size, size));
+        var loading = fragmentCts != null;
+        SetStatus(() => TF(Texts.Main.FragmentInfo, frame.Columns, frame.Rows, frame.Columns * size, frame.Rows * size, size) +
+                        (loading ? T(Texts.Main.FragmentLoading) : ""));
+    }
+
+    private void OnFrameChanged()
+    {
+        if (viewer.Frame == null)
+        {
+            fragmentTimer.Stop();
+            fragmentCts?.Cancel();
+            fragmentRender = null;
+            fragmentTiles.Clear();
+            return;
+        }
+
+        RestartFragmentPreview();
+    }
+
+    /// <summary>Renders the framed part again once the frame or the look has stopped changing.</summary>
+    private void RestartFragmentPreview()
+    {
+        fragmentTimer.Stop();
+        fragmentCts?.Cancel();
+        fragmentTimer.Start();
+        ShowFragmentInfo();
+    }
+
+    /// <summary>The framed part with the tile size it will be saved with, shown inside the frame and reused when saving.</summary>
+    private async Task PreviewFragmentAsync()
+    {
+        fragmentTimer.Stop();
+        if (viewer.Frame is not { } frame || result is not { } current || building || savingFragment)
+        {
+            return;
+        }
+
+        var size = FragmentTileSize(current, frame);
+        if (fragmentRender is { } ready && ready.Matches(current, frame, size))
+        {
+            return;
+        }
+
+        if (size == current.Library.TileSize)
+        {
+            // The mosaic already shows this part at the size it is saved with.
+            fragmentRender = null;
+            viewer.SetFramePreview(null, default);
+            return;
+        }
+
+        fragmentCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        fragmentCts = cts;
+        progressBar.Style = ProgressBarStyle.Marquee;
+        ShowFragmentInfo();
+        try
+        {
+            var (image, display) = await Task.Run(() =>
+            {
+                var image = MosaicBuilder.RenderFragment(current, frame, size, null, cts.Token, fragmentTiles);
+                return (image, DisplayImage.From(image));
+            }, cts.Token);
+
+            if (fragmentCts == cts && viewer.Frame == frame && result == current)
+            {
+                fragmentRender = new FragmentRender(current, frame, size, image);
+                viewer.SetFramePreview(display, frame);
+            }
+            else
+            {
+                display.Dispose();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The frame or the look changed meanwhile.
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+        {
+            // Without a preview the frame shows the mosaic; saving reports the problem if it persists.
+        }
+        finally
+        {
+            if (fragmentCts == cts)
+            {
+                fragmentCts = null;
+                if (!savingFragment)
+                {
+                    progressBar.Style = ProgressBarStyle.Continuous;
+                }
+
+                ShowFragmentInfo();
+            }
+
+            cts.Dispose();
+        }
     }
 
     private async Task SaveFragmentAsync()
@@ -727,13 +834,17 @@ internal sealed partial class MainForm : Form
             return;
         }
 
+        // The preview is exactly the fragment when it is ready; otherwise render it, reusing the photos read so far.
+        var ready = fragmentRender is { } preview && preview.Matches(current, frame, size) ? preview.Image : null;
+        fragmentTimer.Stop();
+        fragmentCts?.Cancel();
         savingFragment = true;
         progressBar.Style = ProgressBarStyle.Marquee;
         SetStatus(() => T(Texts.Status.RenderingFragment));
         UpdateState();
         try
         {
-            var saved = await SaveImageAsync(path, () => MosaicBuilder.RenderFragment(current, frame, size));
+            var saved = await SaveImageAsync(path, () => ready ?? MosaicBuilder.RenderFragment(current, frame, size, cache: fragmentTiles));
             if (saved)
             {
                 EndFragment();
@@ -744,6 +855,10 @@ internal sealed partial class MainForm : Form
             savingFragment = false;
             progressBar.Style = ProgressBarStyle.Continuous;
             UpdateState();
+            if (viewer.Frame != null)
+            {
+                RestartFragmentPreview();
+            }
         }
     }
 
@@ -937,5 +1052,12 @@ internal sealed partial class MainForm : Form
         {
             ShowTarget(image);
         }
+    }
+
+    /// <summary>A rendered fragment and what it was rendered for.</summary>
+    private sealed record FragmentRender(MosaicResult Result, CellRect Frame, int TileSize, PixelBuffer Image)
+    {
+        public bool Matches(MosaicResult result, CellRect frame, int tileSize) =>
+            Result == result && Frame == frame && TileSize == tileSize;
     }
 }

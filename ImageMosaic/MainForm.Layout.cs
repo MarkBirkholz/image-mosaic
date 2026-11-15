@@ -23,7 +23,7 @@ internal sealed partial class MainForm
     private LinkLabel clearCacheLink = null!;
     private Panel settingsScroller = null!;
     private Label tilesInfoLabel = null!;
-    private NumericUpDown columnsInput = null!;
+    private NumericUpDown longSideInput = null!;
     private NumericUpDown tileSizeInput = null!;
     private Label outputSizeLabel = null!;
     private NumericUpDown gridInput = null!;
@@ -136,22 +136,13 @@ internal sealed partial class MainForm
         localizer.Tip(suggestLink, Texts.Main.SuggestTip);
 
         // Size
-        columnsInput = Number(MosaicSettings.MinColumns, MosaicSettings.MaxColumns, 80);
+        longSideInput = Number(MosaicSettings.MinLongSideTiles, MosaicSettings.MaxLongSideTiles, 80);
         tileSizeInput = Number(MosaicSettings.MinTileSize, MosaicSettings.MaxTileSize, 32);
         outputSizeLabel = new Label { AutoSize = true, MaximumSize = WrapWidth, ForeColor = SystemColors.GrayText, Margin = new Padding(3, 2, 3, 0) };
-        var layout = Grid(4);
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        var tileSizeLabel = RowLabel(Texts.Main.TileSize, Texts.Main.TileSizeTip, tileSizeInput);
-        tileSizeLabel.Anchor = AnchorStyles.Right;
-        layout.Controls.Add(RowLabel(Texts.Main.Columns, Texts.Main.ColumnsTip, columnsInput), 0, 0);
-        layout.Controls.Add(columnsInput, 1, 0);
-        layout.Controls.Add(tileSizeLabel, 2, 0);
-        layout.Controls.Add(tileSizeInput, 3, 0);
-        layout.Controls.Add(outputSizeLabel, 0, 1);
-        layout.SetColumnSpan(outputSizeLabel, 4);
+        var layout = Grid(3);
+        AddRow(layout, longSideInput, Texts.Main.LongSide, Texts.Main.LongSideTip);
+        AddRow(layout, tileSizeInput, Texts.Main.TileSize, Texts.Main.TileSizeTip);
+        AddSpanning(layout, outputSizeLabel);
         layoutGroup = Group(Texts.Main.GroupSize, layout);
 
         // Matching
@@ -167,7 +158,7 @@ internal sealed partial class MainForm
         // Look
         (correctionBar, correctionValue) = Slider(0, PercentSteps.Count, PercentSteps.ToSteps(0.4));
         (overlayBar, overlayValue) = Slider(0, PercentSteps.Count, PercentSteps.ToSteps(0.2));
-        (edgesBar, edgesValue) = Slider(0, PercentSteps.Count, 0);
+        (edgesBar, edgesValue) = Slider(0, (int)Math.Round(MosaicSettings.MaxEdgeBlend * 100), 0);
         var look = Grid(3);
         AddSliderRow(look, correctionBar, correctionValue, Texts.Main.Correction, Texts.Main.CorrectionTip);
         AddSliderRow(look, overlayBar, overlayValue, Texts.Main.Overlay, Texts.Main.OverlayTip);
@@ -175,13 +166,13 @@ internal sealed partial class MainForm
         var lookGroup = Group(Texts.Main.GroupLook, look);
         localizer.Tip(lookGroup, Texts.Main.LookHint);
 
-        // Actions
+        // Build and save
         buildButton = new Button
         {
             Dock = DockStyle.Fill,
             Height = 36,
             Font = new Font(Font.FontFamily, 10.5F, FontStyle.Bold),
-            Margin = new Padding(3, 8, 3, 3),
+            Margin = new Padding(3, 2, 3, 10),
         };
         saveButton = localizer.Text(new Button { Dock = DockStyle.Fill, Height = 32, Enabled = false }, Texts.Main.Save);
         saveFragmentButton = localizer.Text(new Button { Dock = DockStyle.Fill, Height = 32, Enabled = false }, Texts.Main.SaveFragment);
@@ -204,10 +195,12 @@ internal sealed partial class MainForm
 
         stack.Controls.Add(sourceGroup);
         stack.Controls.Add(layoutGroup);
+        // Build right after the settings it uses; the look below is applied to the finished mosaic.
         stack.Controls.Add(matchingGroup);
+        stack.Controls.Add(buildButton);
         stack.Controls.Add(lookGroup);
 
-        // Settings scroll, actions stay at the bottom.
+        // Settings scroll, saving and the status stay at the bottom.
         var scroller = settingsScroller = new Panel { Dock = DockStyle.Fill, AutoScroll = true, Margin = Padding.Empty };
         scroller.Controls.Add(stack);
 
@@ -221,12 +214,11 @@ internal sealed partial class MainForm
             Margin = Padding.Empty,
         };
         actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        actions.Controls.Add(buildButton, 0, 0);
-        actions.Controls.Add(saveButtons, 0, 1);
-        actions.Controls.Add(progressBar, 0, 2);
-        actions.Controls.Add(statusLabel, 0, 3);
-        actions.Controls.Add(savedLinks, 0, 4);
-        actions.Controls.Add(clearCacheLink, 0, 5);
+        actions.Controls.Add(saveButtons, 0, 0);
+        actions.Controls.Add(progressBar, 0, 1);
+        actions.Controls.Add(statusLabel, 0, 2);
+        actions.Controls.Add(savedLinks, 0, 3);
+        actions.Controls.Add(clearCacheLink, 0, 4);
 
         var sidebar = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty };
         sidebar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));

@@ -22,7 +22,8 @@ internal static class SettingsStore
             {
                 var json = File.ReadAllText(FilePath);
                 var settings = JsonSerializer.Deserialize<MosaicSettings>(json, Options) ?? new MosaicSettings();
-                return settings.TilesFolders.Count > 0 ? settings : settings with { TilesFolders = LegacyFolder(json) };
+                using var document = JsonDocument.Parse(json);
+                return FromOlderVersions(settings, document.RootElement);
             }
         }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
@@ -33,15 +34,25 @@ internal static class SettingsStore
         return new MosaicSettings();
     }
 
-    /// <summary>Settings from version 2.0 had a single "TilesFolder" string.</summary>
-    private static List<string> LegacyFolder(string json)
+    /// <summary>Older settings files had a single "TilesFolder" string and "Columns", tiles across the width.</summary>
+    private static MosaicSettings FromOlderVersions(MosaicSettings settings, JsonElement root)
     {
-        using var document = JsonDocument.Parse(json);
-        return document.RootElement.TryGetProperty("TilesFolder", out var folder) &&
-               folder.ValueKind == JsonValueKind.String &&
-               !string.IsNullOrWhiteSpace(folder.GetString())
-            ? [folder.GetString()!]
-            : [];
+        if (settings.TilesFolders.Count == 0 &&
+            root.TryGetProperty("TilesFolder", out var folder) &&
+            folder.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(folder.GetString()))
+        {
+            settings = settings with { TilesFolders = [folder.GetString()!] };
+        }
+
+        if (!root.TryGetProperty(nameof(MosaicSettings.LongSideTiles), out _) &&
+            root.TryGetProperty("Columns", out var columns) &&
+            columns.TryGetInt32(out var count))
+        {
+            settings = settings with { LongSideTiles = count };
+        }
+
+        return settings;
     }
 
     public static void Save(MosaicSettings settings)

@@ -7,7 +7,7 @@ namespace ImageMosaic.Tests;
 
 public class SuggestionAnalysisTests
 {
-    private static readonly SuggestionOptions Options = new() { Columns = 12 };
+    private static readonly SuggestionOptions Options = new() { LongSideTiles = 12 };
 
     [Fact]
     public void ReusedWhileNothingChanged()
@@ -16,7 +16,7 @@ public class SuggestionAnalysisTests
         var first = SuggestionAnalysis.Run(load(), Options);
 
         var again = SuggestionAnalysis.Reuse(first, load(), Options);
-        var otherWeights = SuggestionAnalysis.Reuse(first, load(), Options with { Weights = new SuggestionWeights { Detail = 90 }, Count = 3 });
+        var otherWeights = SuggestionAnalysis.Reuse(first, load(), Options with { Weights = new SuggestionWeights { DetailFrom = 20 }, Count = 3 });
 
         Assert.Same(first, again);
         Assert.Same(first, otherWeights);
@@ -64,9 +64,29 @@ public class SuggestionAnalysisTests
         var otherTiles = TileLibrary.Load(new TileLibraryOptions(temp.Path, 12) { CacheDirectory = null });
 
         Assert.False(first.IsValidFor(library, Options with { Match = new MatchOptions { MinRepeatDistance = 1 } }));
-        Assert.False(first.IsValidFor(library, Options with { Columns = 20 }));
+        Assert.False(first.IsValidFor(library, Options with { LongSideTiles = 20 }));
         Assert.False(first.IsValidFor(otherTiles, Options));
         Assert.True(first.IsValidFor(library, Options));
+    }
+
+    [Fact]
+    public void AnalyzesPhotosOfEveryFolder()
+    {
+        using var temp = new TempFolder();
+        var colors = new[] { new Rgb(220, 40, 40), new Rgb(40, 180, 60), new Rgb(40, 80, 220), new Rgb(240, 200, 40) };
+        for (var i = 0; i < colors.Length; i++)
+        {
+            temp.SaveImage(Path.Combine(i < 2 ? "a" : "b", $"p{i}.png"), TestImages.TwoTone(60, colors[i], colors[(i + 1) % colors.Length]).Resize(60, 40));
+        }
+
+        var folders = new[] { Path.Combine(temp.Path, "a"), Path.Combine(temp.Path, "b") };
+        var library = TileLibrary.Load(new TileLibraryOptions(folders, 8) { CacheDirectory = null });
+
+        var analysis = SuggestionAnalysis.Run(library, Options with { MaxCandidates = 2 });
+
+        Assert.Equal(2, analysis.Candidates.Count);
+        Assert.Contains(analysis.Candidates, c => c.Path.StartsWith(folders[0], StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(analysis.Candidates, c => c.Path.StartsWith(folders[1], StringComparison.OrdinalIgnoreCase));
     }
 
     private static TempFolder Library(out Func<TileLibrary> load)

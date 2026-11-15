@@ -52,7 +52,7 @@ public sealed class MosaicBuilder(string? cacheDirectory, Action<string>? log = 
 
         var total = Stopwatch.StartNew();
         var info = ImageCodec.ReadInfo(settings.TargetImagePath);
-        var (outWidth, outHeight, rows) = settings.OutputSize(info.Width, info.Height);
+        var (outWidth, outHeight, columns, rows) = settings.OutputSize(info.Width, info.Height);
         if ((long)outWidth * outHeight > MosaicSettings.MaxOutputPixels)
         {
             throw new ArgumentException(TF(
@@ -66,8 +66,8 @@ public sealed class MosaicBuilder(string? cacheDirectory, Action<string>? log = 
         progress?.Report(new MosaicProgress(MosaicStage.LoadingTarget, 0, 1));
         // Decode only as much resolution as the output can show.
         var target = ImageCodec.Load(settings.TargetImagePath, minShortSide: Math.Min(outWidth, outHeight));
-        var grid = TargetGrid.FromImage(target, settings.Columns, rows, settings.FeatureGrid);
-        log?.Invoke(TF(Texts.Log.Target, info.Width, info.Height, settings.Columns, rows, step.Elapsed.TotalSeconds));
+        var grid = TargetGrid.FromImage(target, columns, rows, settings.FeatureGrid);
+        log?.Invoke(TF(Texts.Log.Target, info.Width, info.Height, columns, rows, step.Elapsed.TotalSeconds));
 
         step.Restart();
         var plan = TileMatcher.Match(grid, library, settings.ToMatchOptions(), progress, cancellationToken);
@@ -145,14 +145,16 @@ public sealed class MosaicBuilder(string? cacheDirectory, Action<string>? log = 
     /// <summary>
     /// Renders a rectangle of whole cells of a finished mosaic with bigger tiles: the photos used there are read
     /// again at <paramref name="tileSize"/>, so an enlarged fragment shows the photos sharply instead of
-    /// enlarged pixels. Same plan and rendering options as the mosaic.
+    /// enlarged pixels. Same plan and rendering options as the mosaic. With a <paramref name="cache"/>, photos
+    /// already read for an earlier fragment are not read again.
     /// </summary>
     public static PixelBuffer RenderFragment(
         MosaicResult result,
         CellRect fragment,
         int tileSize,
         IProgress<MosaicProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        FragmentTileCache? cache = null)
     {
         var plan = result.Plan;
         if (fragment.Column < 0 || fragment.Row < 0 || fragment.Columns < 1 || fragment.Rows < 1 ||
@@ -206,7 +208,9 @@ public sealed class MosaicBuilder(string? cacheDirectory, Action<string>? log = 
             PixelBuffer pixels;
             try
             {
-                pixels = tileSize == result.Library.TileSize ? source.Pixels : TileLibrary.PrepareTile(source.SourcePath, tileSize);
+                pixels = tileSize == result.Library.TileSize ? source.Pixels
+                    : cache != null ? cache.Get(source.SourcePath, tileSize)
+                    : TileLibrary.PrepareTile(source.SourcePath, tileSize);
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {

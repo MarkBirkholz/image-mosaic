@@ -13,14 +13,14 @@ const string Usage = """
     Several tile folders can be given by repeating --tiles or separating them with ";".
 
     Options:
-      --columns <n>       tiles across (default 80)
+      --long-side <n>     tiles along the longer side of the target (default 80)
       --tile-size <px>    size of one tile in the output (default 32)
       --grid <n>          colors compared per tile side, 1-8 (default 3)
       --repeat <n>        min distance between equal tiles, in cells (default 4)
       --penalty <x>       penalty for reusing a photo, ΔE per fair share (default 3)
       --correction <0-1>  shift tile colors toward the target (default 0.4)
       --overlay <0-1>     blend the target over the tiles (default 0.2)
-      --blend <0-1>       soft transition between tiles, share of a tile (default 0)
+      --blend <0-0.25>    soft transition between tiles, share of a tile (default 0)
       --seed <n>          random seed for the fill order (default 1)
       --quality <1-100>   JPEG quality (default 92)
       --cache <folder>    tile cache folder (default: %LOCALAPPDATA%\ImageMosaic\TileCache)
@@ -45,7 +45,7 @@ try
     {
         TargetImagePath = Required(options, "target"),
         TilesFolders = Required(options, "tiles").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
-        Columns = Int(options, "columns", defaults.Columns),
+        LongSideTiles = Int(options, "long-side", defaults.LongSideTiles),
         TileSize = Int(options, "tile-size", defaults.TileSize),
         FeatureGrid = Int(options, "grid", defaults.FeatureGrid),
         MinRepeatDistance = Int(options, "repeat", defaults.MinRepeatDistance),

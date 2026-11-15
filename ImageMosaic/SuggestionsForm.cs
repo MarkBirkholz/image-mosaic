@@ -1,6 +1,7 @@
 using System.Globalization;
 using ImageMosaic.Core;
 using ImageMosaic.Core.Imaging;
+using ImageMosaic.Controls;
 using ImageMosaic.Core.Suggestions;
 using ImageMosaic.Infrastructure;
 
@@ -12,6 +13,9 @@ internal sealed class SuggestionsForm : Form
     private const int ThumbWidth = 220;
     private const int ThumbHeight = 150;
     private const int WeightsWidth = 280;
+
+    // Cards are added a page at a time as the list is scrolled down.
+    private const int PageSize = 24;
 
     private static readonly Color SelectedColor = Color.FromArgb(204, 228, 247);
 
@@ -28,9 +32,13 @@ internal sealed class SuggestionsForm : Form
     private readonly ProgressBar progressBar;
     private readonly Button useButton;
     private readonly List<(TrackBar Bar, Label Value)> sliders = [];
+    private readonly RangeSlider detailRange = new() { Dock = DockStyle.Fill, Step = PercentSteps.Step, Margin = new Padding(3, 1, 3, 1) };
+    private readonly Label detailValue = new() { AutoSize = true, Anchor = AnchorStyles.Right, ForeColor = SystemColors.GrayText, Margin = new Padding(3, 6, 3, 0) };
     private IReadOnlyList<TargetCandidate> analyzed = [];
+    private IReadOnlyList<TargetSuggestion> ranked = [];
     private Panel? selectedCard;
     private bool applyingWeights;
+    private bool showMoreQueued;
 
     public SuggestionsForm(MosaicBuilder builder, MosaicSettings settings, SuggestionAnalysis? previous)
     {
@@ -53,6 +61,9 @@ internal sealed class SuggestionsForm : Form
         statusLabel = new Label { AutoSize = true, Margin = new Padding(3, 0, 3, 4), ForeColor = SystemColors.GrayText };
         progressBar = new ProgressBar { Dock = DockStyle.Fill, Height = 8, Maximum = 1000, Style = ProgressBarStyle.Marquee };
         cards = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = SystemColors.Window, Padding = new Padding(6) };
+        cards.Scroll += (_, _) => QueueShowMore();
+        cards.MouseWheel += (_, _) => QueueShowMore();
+        cards.Resize += (_, _) => QueueShowMore();
         useButton = new Button { Text = T(Texts.Suggest.Use), AutoSize = true, Enabled = false, DialogResult = DialogResult.OK };
         var cancelButton = new Button { Text = T(Texts.Main.Cancel), AutoSize = true, DialogResult = DialogResult.Cancel };
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Margin = new Padding(0, 6, 0, 0) };
@@ -168,7 +179,7 @@ internal sealed class SuggestionsForm : Form
         grid.SetColumnSpan(ratios, 2);
         grid.Controls.Add(InfoButton(Texts.Suggest.Score, Texts.Suggest.ScoreHelp));
 
-        AddSlider(grid, Texts.Weight.Detail, Texts.Weight.DetailHelp, twoWay: true);
+        AddDetailRange(grid);
 
         var reset = new Button { Text = T(Texts.Suggest.Reset), AutoSize = true, Margin = new Padding(3, 6, 3, 3) };
         reset.Click += (_, _) => ApplyWeights(SuggestionWeights.Default);
@@ -181,13 +192,13 @@ internal sealed class SuggestionsForm : Form
         return group;
     }
 
-    private void AddSlider(TableLayoutPanel grid, string key, string helpKey, bool twoWay = false)
+    private void AddSlider(TableLayoutPanel grid, string key, string helpKey)
     {
         var label = new Label { Text = T(key), AutoSize = true, Margin = new Padding(3, 6, 3, 0) };
         var value = new Label { AutoSize = true, Anchor = AnchorStyles.Right, ForeColor = SystemColors.GrayText, Margin = new Padding(3, 6, 3, 0) };
         var bar = new TrackBar
         {
-            Minimum = twoWay ? -PercentSteps.Count : 0,
+            Minimum = 0,
             Maximum = PercentSteps.Count,
             TickStyle = TickStyle.None,
             Dock = DockStyle.Fill,
@@ -203,6 +214,17 @@ internal sealed class SuggestionsForm : Form
         grid.Controls.Add(bar);
         grid.SetColumnSpan(bar, 3);
         sliders.Add((bar, value));
+    }
+
+    private void AddDetailRange(TableLayoutPanel grid)
+    {
+        var label = new Label { Text = T(Texts.Weight.Detail), AutoSize = true, Margin = new Padding(3, 6, 3, 0) };
+        detailRange.ValueChanged += (_, _) => WeightsChanged();
+        grid.Controls.Add(label);
+        grid.Controls.Add(detailValue);
+        grid.Controls.Add(InfoButton(Texts.Weight.Detail, Texts.Weight.DetailHelp));
+        grid.Controls.Add(detailRange);
+        grid.SetColumnSpan(detailRange, 3);
     }
 
     // A balloon, unlike a dialog, does not take focus: sliders stay usable while it is open.
@@ -240,39 +262,39 @@ internal sealed class SuggestionsForm : Form
     private void ApplyWeights(SuggestionWeights weights)
     {
         applyingWeights = true;
-        double[] values = [weights.ColorMatch, weights.ColorVariety, weights.Contrast, weights.Detail];
+        double[] values = [weights.ColorMatch, weights.ColorVariety, weights.Contrast];
         for (var i = 0; i < sliders.Count; i++)
         {
-            var percent = (int)Math.Round(values[i]);
-            sliders[i].Bar.Value = Math.Sign(percent) * PercentSteps.ToSteps(Math.Abs(percent));
+            sliders[i].Bar.Value = PercentSteps.ToSteps((int)Math.Round(values[i]));
         }
 
+        detailRange.SetRange((int)Math.Round(weights.DetailFrom), (int)Math.Round(weights.DetailTo));
         applyingWeights = false;
         WeightsChanged();
     }
 
     private void WeightsChanged()
     {
-        if (applyingWeights || sliders.Count < 4)
+        if (applyingWeights || sliders.Count < 3)
         {
             return;
         }
 
         int Value(int i) => PercentSteps.ToPercent(sliders[i].Bar.Value);
-        for (var i = 0; i < 3; i++)
+        for (var i = 0; i < sliders.Count; i++)
         {
             sliders[i].Value.Text = Value(i).ToString(CultureInfo.CurrentCulture);
         }
 
-        var detail = Value(3);
-        sliders[3].Value.Text = detail switch
+        Weights = new SuggestionWeights
         {
-            0 => T(Texts.Suggest.DetailOff),
-            < 0 => $"{-detail} · {T(Texts.Suggest.DetailSimpler)}",
-            _ => $"{detail} · {T(Texts.Suggest.DetailRicher)}",
+            ColorMatch = Value(0),
+            ColorVariety = Value(1),
+            Contrast = Value(2),
+            DetailFrom = detailRange.Low,
+            DetailTo = detailRange.High,
         };
-
-        Weights = new SuggestionWeights { ColorMatch = Value(0), ColorVariety = Value(1), Contrast = Value(2), Detail = detail };
+        detailValue.Text = Weights.LimitsDetail ? $"{detailRange.Low}–{detailRange.High} %" : T(Texts.Suggest.DetailAll);
         rerankTimer.Stop();
         rerankTimer.Start();
     }
@@ -339,7 +361,7 @@ internal sealed class SuggestionsForm : Form
             return;
         }
 
-        var suggestions = TargetSuggester.Rank(analyzed, Weights, new SuggestionOptions().Count);
+        ranked = TargetSuggester.Rank(analyzed, Weights, int.MaxValue);
         var previous = SelectedPath;
 
         cards.SuspendLayout();
@@ -351,13 +373,9 @@ internal sealed class SuggestionsForm : Form
         }
 
         selectedCard = null;
-        for (var i = 0; i < suggestions.Count; i++)
-        {
-            cards.Controls.Add(CreateCard(suggestions[i], i + 1));
-        }
-
         cards.ResumeLayout();
         cards.AutoScrollPosition = Point.Empty;
+        ShowMore();
 
         var keep = cards.Controls.Cast<Panel>().FirstOrDefault(c => string.Equals((string)c.Tag!, previous, StringComparison.OrdinalIgnoreCase));
         if ((keep ?? cards.Controls.Cast<Panel>().FirstOrDefault()) is { } card)
@@ -370,11 +388,61 @@ internal sealed class SuggestionsForm : Form
             useButton.Enabled = false;
         }
 
-        statusLabel.Text = suggestions.Count == 0
+        statusLabel.Text = ranked.Count == 0
             ? T(Texts.Suggest.StatusNone)
-            : TF(Texts.Suggest.StatusBest, suggestions.Count, analyzed.Count) +
+            : (Weights.LimitsDetail ? TF(Texts.Suggest.StatusInRange, ranked.Count, analyzed.Count) : TF(Texts.Suggest.StatusAll, analyzed.Count)) +
               (Weights.AllZero ? T(Texts.Suggest.StatusAllZero) : "") +
               T(Texts.Suggest.StatusPick);
+    }
+
+    /// <summary>Adds the next page of cards.</summary>
+    private void ShowMore()
+    {
+        var shown = cards.Controls.Count;
+        if (shown >= ranked.Count)
+        {
+            return;
+        }
+
+        cards.SuspendLayout();
+        foreach (var (suggestion, i) in ranked.Skip(shown).Take(PageSize).Select((s, i) => (s, shown + i)))
+        {
+            cards.Controls.Add(CreateCard(suggestion, i + 1));
+        }
+
+        cards.ResumeLayout(true);
+        QueueShowMore();
+    }
+
+    /// <summary>Checks after the current layout and input are done, so the new cards' positions are known.</summary>
+    private void QueueShowMore()
+    {
+        if (showMoreQueued || !IsHandleCreated || IsDisposed)
+        {
+            return;
+        }
+
+        showMoreQueued = true;
+        BeginInvoke(() =>
+        {
+            showMoreQueued = false;
+            ShowMoreIfNeeded();
+        });
+    }
+
+    /// <summary>Adds a page when less than two rows of cards are left below the visible part of the list.</summary>
+    private void ShowMoreIfNeeded()
+    {
+        if (IsDisposed || cards.Controls.Count == 0 || cards.Controls.Count >= ranked.Count)
+        {
+            return;
+        }
+
+        var below = cards.Controls[^1].Bottom - cards.ClientSize.Height;
+        if (below < 2 * cards.Controls[^1].Height)
+        {
+            ShowMore();
+        }
     }
 
     private Panel CreateCard(TargetSuggestion suggestion, int rank)

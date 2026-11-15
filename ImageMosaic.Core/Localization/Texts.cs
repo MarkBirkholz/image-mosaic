@@ -19,7 +19,6 @@ public static class Texts
         public const string ChooseTarget = "validation.choose_target";
         public const string TargetNotFound = "validation.target_not_found";
         public const string UnsupportedType = "validation.unsupported_type";
-        public const string ColumnsRange = "validation.columns_range";
         public const string TileSizeRange = "validation.tile_size_range";
         public const string GridRange = "validation.grid_range";
         public const string RepeatNegative = "validation.repeat_negative";
@@ -27,6 +26,8 @@ public static class Texts
         public const string ColorsRange = "validation.colors_range";
         public const string AddFolder = "validation.add_folder";
         public const string FolderNotFound = "validation.folder_not_found";
+        public const string LongSideRange = "validation.long_side_range";
+        public const string EdgesRange = "validation.edges_range";
     }
 
     public static class Build
@@ -72,8 +73,6 @@ public static class Texts
         public const string Suggest = "main.suggest";
         public const string SuggestTip = "main.suggest.tip";
         public const string GroupSize = "main.group.size";
-        public const string Columns = "main.columns";
-        public const string ColumnsTip = "main.columns.tip";
         public const string TileSize = "main.tile_size";
         public const string TileSizeTip = "main.tile_size.tip";
         public const string OutputUnknown = "main.output.unknown";
@@ -119,6 +118,9 @@ public static class Texts
         public const string CacheConfirmTitle = "main.cache.confirm_title";
         public const string CacheCleared = "main.cache.cleared";
         public const string CacheInUse = "main.cache.in_use";
+        public const string LongSide = "main.long_side";
+        public const string LongSideTip = "main.long_side.tip";
+        public const string FragmentLoading = "main.fragment.loading";
     }
 
     public static class Size
@@ -181,12 +183,11 @@ public static class Texts
         public const string ScoreHelp = "suggest.score.help";
         public const string Marks = "suggest.marks";
         public const string StatusNone = "suggest.status.none";
-        public const string StatusBest = "suggest.status.best";
         public const string StatusPick = "suggest.status.pick";
-        public const string DetailOff = "suggest.detail.off";
-        public const string DetailSimpler = "suggest.detail.simpler";
-        public const string DetailRicher = "suggest.detail.richer";
         public const string StatusAllZero = "suggest.status.all_zero";
+        public const string StatusAll = "suggest.status.all";
+        public const string StatusInRange = "suggest.status.in_range";
+        public const string DetailAll = "suggest.detail.all";
     }
 
     public static class Weight

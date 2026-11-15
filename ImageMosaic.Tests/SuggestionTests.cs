@@ -13,7 +13,7 @@ public class SuggestionScoringTests
     [Fact]
     public void ScoreRewardsEveryCriterion()
     {
-        var weights = SuggestionWeights.Default with { Detail = 15 };
+        var weights = SuggestionWeights.Default;
         double Score(TargetMetrics m) => TargetSuggester.Score(m, weights, ScoreScale.Absolute).Score;
         var (best, notes) = TargetSuggester.Score(Good, weights, ScoreScale.Absolute);
 
@@ -21,7 +21,6 @@ public class SuggestionScoringTests
         Assert.Contains(SuggestionNote.ColorsWellCovered, notes);
         Assert.True(Score(Good with { MeanError = 20 }) < best);
         Assert.True(Score(Good with { Contrast = 4 }) < best);
-        Assert.True(Score(Good with { Detail = 1 }) < best);
         Assert.True(Score(Good with { ColorVariety = 0.1 }) < best);
     }
 
@@ -40,8 +39,8 @@ public class SuggestionScoringTests
     {
         var colorful = Candidate("colorful.jpg", new TargetMetrics(18, 20, 5, 0.9));
         var gray = Candidate("gray.jpg", new TargetMetrics(5, 20, 5, 0.05));
-        var colorsOnly = new SuggestionWeights { ColorMatch = 100, ColorVariety = 0, Contrast = 0, Detail = 0 };
-        var varietyOnly = new SuggestionWeights { ColorMatch = 0, ColorVariety = 100, Contrast = 0, Detail = 0 };
+        var colorsOnly = new SuggestionWeights { ColorMatch = 100, ColorVariety = 0, Contrast = 0 };
+        var varietyOnly = new SuggestionWeights { ColorMatch = 0, ColorVariety = 100, Contrast = 0 };
 
         Assert.Equal(["gray.jpg", "colorful.jpg"], TargetSuggester.Rank([colorful, gray], colorsOnly, 10).Select(s => s.Path));
         Assert.Equal(["colorful.jpg", "gray.jpg"], TargetSuggester.Rank([colorful, gray], varietyOnly, 10).Select(s => s.Path));
@@ -50,10 +49,10 @@ public class SuggestionScoringTests
     [Fact]
     public void OnlyRatiosMatterAndZeroWeightsCountEqually()
     {
-        var weights = new SuggestionWeights { ColorMatch = 30, ColorVariety = 20, Contrast = 10, Detail = 5 };
-        var doubled = new SuggestionWeights { ColorMatch = 60, ColorVariety = 40, Contrast = 20, Detail = 10 };
-        var zero = new SuggestionWeights { ColorMatch = 0, ColorVariety = 0, Contrast = 0, Detail = 0 };
-        var equal = new SuggestionWeights { ColorMatch = 25, ColorVariety = 25, Contrast = 25, Detail = 0 };
+        var weights = new SuggestionWeights { ColorMatch = 30, ColorVariety = 20, Contrast = 10 };
+        var doubled = new SuggestionWeights { ColorMatch = 60, ColorVariety = 40, Contrast = 20 };
+        var zero = new SuggestionWeights { ColorMatch = 0, ColorVariety = 0, Contrast = 0 };
+        var equal = new SuggestionWeights { ColorMatch = 25, ColorVariety = 25, Contrast = 25 };
         var scale = ScoreScale.Absolute;
 
         Assert.Equal(TargetSuggester.Score(Good, weights, scale).Score, TargetSuggester.Score(Good, doubled, scale).Score);
@@ -61,25 +60,29 @@ public class SuggestionScoringTests
     }
 
     [Theory]
-    [InlineData(100, "p9.jpg")]
-    [InlineData(-100, "p0.jpg")]
-    public void DetailSliderPrefersRicherOrSimplerPhotos(double detail, string first)
+    [InlineData(0, 100, "p0 p1 p2 p3 p4 p5 p6 p7 p8 p9")]
+    [InlineData(10, 90, "p1 p2 p3 p4 p5 p6 p7 p8")]
+    [InlineData(0, 30, "p0 p1 p2")]
+    [InlineData(80, 100, "p8 p9")]
+    [InlineData(90, 10, "p1 p2 p3 p4 p5 p6 p7 p8")]
+    public void DetailRangeLeavesOutTheSimplestAndTheMostDetailedPhotos(double from, double to, string expected)
     {
         var candidates = Enumerable.Range(0, 10).Select(i => Candidate($"p{i}.jpg", new TargetMetrics(10, 10, Detail: i, 0.5))).ToList();
-        var weights = new SuggestionWeights { ColorMatch = 0, ColorVariety = 0, Contrast = 0, Detail = detail };
+        var weights = SuggestionWeights.Default with { DetailFrom = from, DetailTo = to };
 
-        Assert.Equal(first, TargetSuggester.Rank(candidates, weights, 10)[0].Path);
+        var kept = TargetSuggester.Rank(candidates, weights, 100).Select(s => Path.GetFileNameWithoutExtension(s.Path)).Order();
+
+        Assert.Equal(expected, string.Join(" ", kept));
     }
 
     [Fact]
-    public void DetailInTheMiddleIsIgnored()
+    public void DetailDoesNotChangeTheScore()
     {
         var simple = Candidate("simple.jpg", new TargetMetrics(10, 20, Detail: 1, 0.5));
         var rich = Candidate("rich.jpg", new TargetMetrics(10, 20, Detail: 9, 0.5));
-        var neutral = SuggestionWeights.Default with { Detail = 0 };
-        var allZero = new SuggestionWeights { ColorMatch = 0, ColorVariety = 0, Contrast = 0, Detail = 0 };
+        var allZero = new SuggestionWeights { ColorMatch = 0, ColorVariety = 0, Contrast = 0 };
 
-        foreach (var weights in new[] { neutral, allZero })
+        foreach (var weights in new[] { SuggestionWeights.Default, allZero })
         {
             var scores = TargetSuggester.Rank([simple, rich], weights, 2).Select(s => s.Score).ToList();
             Assert.Equal(scores[0], scores[1]);
@@ -89,7 +92,7 @@ public class SuggestionScoringTests
     [Fact]
     public void WeightsAreSavedWithTheSettings()
     {
-        var settings = new MosaicSettings { SuggestionWeights = SuggestionWeights.Default with { Detail = -55, Contrast = 80 } };
+        var settings = new MosaicSettings { SuggestionWeights = SuggestionWeights.Default with { DetailFrom = 15, DetailTo = 70, Contrast = 80 } };
 
         var restored = JsonSerializer.Deserialize<MosaicSettings>(JsonSerializer.Serialize(settings))!;
         var fromOldFile = JsonSerializer.Deserialize<MosaicSettings>("""{ "SuggestionWeights": { "NoFlatAreas": 15, "LowResolutionPenalty": 40, "DetailLimit": 80 } }""")!;
@@ -168,7 +171,7 @@ public class SuggestionAnalysisRealPhotosTests
     public void MeasuresFlatAndStructuredImages()
     {
         var library = TileLibrary.FromPixels(Bright.Select(c => PixelBuffer.Solid(8, 8, c)));
-        var options = new SuggestionOptions { Columns = 16 };
+        var options = new SuggestionOptions { LongSideTiles = 16 };
 
         var flat = TargetSuggester.Measure(PixelBuffer.Solid(160, 120, new Rgb(128, 128, 128)), library, options);
         var colorful = TargetSuggester.Measure(Checkerboard(160, 120, 15), library, options);
@@ -196,7 +199,7 @@ public class SuggestionAnalysisRealPhotosTests
         var library = TileLibrary.Load(new TileLibraryOptions(Path.Combine(temp.Path, "tiles"), 8) { CacheDirectory = null });
         var candidates = ImageFileScanner.Scan(Path.Combine(temp.Path, "photos"));
 
-        var suggestions = TargetSuggester.Suggest(library, candidates, new SuggestionOptions { Columns = 16 });
+        var suggestions = TargetSuggester.Suggest(library, candidates, new SuggestionOptions { LongSideTiles = 16 });
 
         Assert.Equal([colorful, gray], suggestions.Select(s => s.Path));
         Assert.True(suggestions[0].Score > suggestions[1].Score);

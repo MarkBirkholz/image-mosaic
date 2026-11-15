@@ -8,12 +8,14 @@ namespace ImageMosaic.Tests;
 public class TargetGridTests
 {
     [Theory]
-    [InlineData(80, 1600, 900, 45)]
-    [InlineData(10, 100, 1000, 100)]
-    [InlineData(10, 1000, 10, 1)]
-    public void RowsKeepAspectRatio(int columns, int width, int height, int rows)
+    [InlineData(80, 1600, 900, 80, 45)]
+    [InlineData(80, 900, 1600, 45, 80)]
+    [InlineData(10, 100, 100, 10, 10)]
+    [InlineData(10, 1000, 10, 10, 1)]
+    [InlineData(10, 10, 1000, 1, 10)]
+    public void LongSideGetsTheTilesAndTheOtherKeepsTheAspectRatio(int longSide, int width, int height, int columns, int rows)
     {
-        Assert.Equal(rows, TargetGrid.RowsFor(columns, width, height));
+        Assert.Equal((columns, rows), TargetGrid.SizeFor(longSide, width, height));
     }
 
     [Fact]
@@ -224,14 +226,16 @@ public class MosaicSettingsTests
         {
             TargetImagePath = temp.SaveImage("t.png", new PixelBuffer(4, 4)),
             TilesFolders = [temp.Path],
-            Columns = 1,
+            LongSideTiles = 1,
             TileSize = 1000,
             Overlay = 2,
+            EdgeBlend = 0.3,
         };
 
         var errors = settings.Validate();
 
-        Assert.Equal(3, errors.Count);
+        Assert.Equal(4, errors.Count);
+        Assert.Contains(errors, e => e.Contains("25 %"));
     }
 
     [Fact]
@@ -246,9 +250,10 @@ public class MosaicSettingsTests
     [Fact]
     public void OutputSizeFollowsTarget()
     {
-        var settings = new MosaicSettings { Columns = 50, TileSize = 20 };
+        var settings = new MosaicSettings { LongSideTiles = 50, TileSize = 20 };
 
-        Assert.Equal((1000, 560, 28), settings.OutputSize(4000, 2250));
+        Assert.Equal((1000, 560, 50, 28), settings.OutputSize(4000, 2250));
+        Assert.Equal((560, 1000, 28, 50), settings.OutputSize(2250, 4000));
     }
 }
 
@@ -269,7 +274,7 @@ public class MosaicBuilderTests
         {
             TargetImagePath = target,
             TilesFolders = [Path.Combine(temp.Path, "tiles")],
-            Columns = 16,
+            LongSideTiles = 16,
             TileSize = 8,
             MinRepeatDistance = 1,
             ColorCorrection = 0,
@@ -298,7 +303,7 @@ public class MosaicBuilderTests
             temp.SaveImage(Path.Combine("tiles", $"{i}.png"), PixelBuffer.Solid(10, 10, color));
         }
 
-        var settings = new MosaicSettings { TargetImagePath = target, TilesFolders = [Path.Combine(temp.Path, "tiles")], Columns = 8, TileSize = 8 };
+        var settings = new MosaicSettings { TargetImagePath = target, TilesFolders = [Path.Combine(temp.Path, "tiles")], LongSideTiles = 8, TileSize = 8 };
         var first = new MosaicBuilder(null).Build(settings);
 
         var second = MosaicBuilder.Rerender(first, colorCorrection: 1, overlay: 0.5);
@@ -322,7 +327,7 @@ public class MosaicBuilderTests
         {
             TargetImagePath = temp.SaveImage("tall.png", new PixelBuffer(10, 100)),
             TilesFolders = [temp.Path],
-            Columns = 500,
+            LongSideTiles = 500,
             TileSize = 256,
         };
 
@@ -336,7 +341,7 @@ public class MosaicBuilderTests
         using var temp = new TempFolder();
         var target = temp.SaveImage("target.png", new PixelBuffer(8, 8));
         Directory.CreateDirectory(temp.File(Path.Combine("empty", "x")));
-        var settings = new MosaicSettings { TargetImagePath = target, TilesFolders = [Path.Combine(temp.Path, "empty")], Columns = 4, TileSize = 8 };
+        var settings = new MosaicSettings { TargetImagePath = target, TilesFolders = [Path.Combine(temp.Path, "empty")], LongSideTiles = 4, TileSize = 8 };
 
         Assert.Throws<InvalidOperationException>(() => new MosaicBuilder(null).Build(settings));
     }

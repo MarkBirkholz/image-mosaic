@@ -7,11 +7,14 @@ namespace ImageMosaic.Core;
 /// <summary>Everything needed to build a mosaic.</summary>
 public sealed record MosaicSettings
 {
-    public const int MinColumns = 4;
-    public const int MaxColumns = 500;
+    public const int MinLongSideTiles = 4;
+    public const int MaxLongSideTiles = 500;
     public const int MinTileSize = 8;
     public const int MaxTileSize = 256;
     public const long MaxOutputPixels = 250_000_000;
+
+    /// <summary>Widest transition between tiles, as a share of the tile size.</summary>
+    public const double MaxEdgeBlend = 0.25;
 
     /// <summary>The picture the mosaic reproduces.</summary>
     public string TargetImagePath { get; init; } = "";
@@ -19,8 +22,8 @@ public sealed record MosaicSettings
     /// <summary>Folders (each searched recursively) with the photos used as tiles.</summary>
     public IReadOnlyList<string> TilesFolders { get; init; } = [];
 
-    /// <summary>Number of tiles across; the number of rows follows from the target's aspect ratio.</summary>
-    public int Columns { get; init; } = 80;
+    /// <summary>Number of tiles along the longer side of the target; the other side follows from its aspect ratio.</summary>
+    public int LongSideTiles { get; init; } = 80;
 
     /// <summary>Size of one square tile in the output, in pixels.</summary>
     public int TileSize { get; init; } = 32;
@@ -36,7 +39,7 @@ public sealed record MosaicSettings
 
     public double Overlay { get; init; } = 0.2;
 
-    /// <summary>0–1: soft transition between neighbouring tiles (0 = sharp edges).</summary>
+    /// <summary>0–<see cref="MaxEdgeBlend"/>: soft transition between neighbouring tiles, as a share of the tile size (0 = sharp edges).</summary>
     public double EdgeBlend { get; init; }
 
     public int Seed { get; init; } = 1;
@@ -80,9 +83,9 @@ public sealed record MosaicSettings
 
         errors.AddRange(ValidateTilesFolders());
 
-        if (Columns is < MinColumns or > MaxColumns)
+        if (LongSideTiles is < MinLongSideTiles or > MaxLongSideTiles)
         {
-            errors.Add(TF(Texts.Validation.ColumnsRange, MinColumns, MaxColumns));
+            errors.Add(TF(Texts.Validation.LongSideRange, MinLongSideTiles, MaxLongSideTiles));
         }
 
         if (TileSize is < MinTileSize or > MaxTileSize)
@@ -105,9 +108,14 @@ public sealed record MosaicSettings
             errors.Add(T(Texts.Validation.VarietyNegative));
         }
 
-        if (ColorCorrection is < 0 or > 1 || Overlay is < 0 or > 1 || EdgeBlend is < 0 or > 1)
+        if (ColorCorrection is < 0 or > 1 || Overlay is < 0 or > 1)
         {
             errors.Add(T(Texts.Validation.ColorsRange));
+        }
+
+        if (EdgeBlend is < 0 or > MaxEdgeBlend)
+        {
+            errors.Add(TF(Texts.Validation.EdgesRange, (int)Math.Round(MaxEdgeBlend * 100)));
         }
 
         return errors;
@@ -127,10 +135,10 @@ public sealed record MosaicSettings
         return errors;
     }
 
-    /// <summary>Output size in pixels for a target of the given (displayed) size.</summary>
-    public (int Width, int Height, int Rows) OutputSize(int targetWidth, int targetHeight)
+    /// <summary>Output size in pixels and in tiles for a target of the given (displayed) size.</summary>
+    public (int Width, int Height, int Columns, int Rows) OutputSize(int targetWidth, int targetHeight)
     {
-        var rows = TargetGrid.RowsFor(Columns, targetWidth, targetHeight);
-        return (Columns * TileSize, rows * TileSize, rows);
+        var (columns, rows) = TargetGrid.SizeFor(LongSideTiles, targetWidth, targetHeight);
+        return (columns * TileSize, rows * TileSize, columns, rows);
     }
 }

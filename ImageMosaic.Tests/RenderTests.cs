@@ -104,6 +104,59 @@ public class FragmentTests
     }
 
     [Fact]
+    public void CachedPhotosGiveTheSameFragmentAndAreReadOnce()
+    {
+        using var temp = new TempFolder();
+        var result = Build(temp);
+        var frame = new CellRect(0, 0, 3, 2);
+        var cache = new FragmentTileCache();
+
+        var first = MosaicBuilder.RenderFragment(result, frame, 64, cache: cache);
+        var readOnce = cache.Loaded;
+        var again = MosaicBuilder.RenderFragment(result, frame, 64, cache: cache);
+        var readAgain = cache.Loaded - readOnce;
+        var moved = MosaicBuilder.RenderFragment(result, frame with { Column = 1 }, 64, cache: cache);
+
+        Assert.Equal(MosaicBuilder.RenderFragment(result, frame, 64).Data, first.Data);
+        Assert.Equal(first.Data, again.Data);
+        // The fragment is rendered with a margin of one tile: 4 × 3 cells at the corner of the mosaic.
+        Assert.InRange(readOnce, 1, 12);
+        Assert.Equal(0, readAgain);
+        // Moving by one column adds at most one new column of 3 cells.
+        Assert.InRange(cache.Loaded - readOnce, 0, 3);
+    }
+
+    [Fact]
+    public void SmallerTilesAreMadeFromTheCachedBiggerOnes()
+    {
+        using var temp = new TempFolder();
+        var result = Build(temp);
+        var cache = new FragmentTileCache();
+        MosaicBuilder.RenderFragment(result, new CellRect(0, 0, 3, 2), 64, cache: cache);
+        var read = cache.Loaded;
+
+        var smaller = MosaicBuilder.RenderFragment(result, new CellRect(0, 0, 3, 2), 40, cache: cache);
+
+        Assert.Equal(read, cache.Loaded);
+        Assert.Equal((120, 80), (smaller.Width, smaller.Height));
+        var tile = smaller.Crop(0, 0, 40, 40);
+        Assert.NotEqual(tile.GetPixel(20, 6), tile.GetPixel(20, 34));
+    }
+
+    [Fact]
+    public void CacheStaysWithinItsSize()
+    {
+        using var temp = new TempFolder();
+        var result = Build(temp);
+        // Room for about three 64 px tiles.
+        var cache = new FragmentTileCache(maxBytes: 3 * 64 * 64 * 3 + 100);
+
+        var image = MosaicBuilder.RenderFragment(result, new CellRect(0, 0, 3, 2), 64, cache: cache);
+
+        Assert.Equal(MosaicBuilder.RenderFragment(result, new CellRect(0, 0, 3, 2), 64).Data, image.Data);
+    }
+
+    [Fact]
     public void FragmentMustLieInsideTheMosaic()
     {
         using var temp = new TempFolder();
@@ -124,7 +177,7 @@ public class FragmentTests
         {
             TargetImagePath = target,
             TilesFolders = [Path.Combine(temp.Path, "tiles")],
-            Columns = 8,
+            LongSideTiles = 8,
             TileSize = 16,
             ColorCorrection = 0.3,
             Overlay = 0.2,
