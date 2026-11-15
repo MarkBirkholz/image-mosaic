@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- WPF is used only for its imaging stack (WIC): fast scaled JPEG decoding and encoding. -->
+    <UseWPF>true</UseWPF>
+    <RootNamespace>ImageMosaic.Core</RootNamespace>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ImageMosaic.Tests" />
+  </ItemGroup>
+
+</Project>

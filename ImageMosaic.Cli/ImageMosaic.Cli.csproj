@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>mosaic</AssemblyName>
+    <RootNamespace>ImageMosaic.Cli</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ImageMosaic.Core\ImageMosaic.Core.csproj" />
+  </ItemGroup>
+
+</Project>

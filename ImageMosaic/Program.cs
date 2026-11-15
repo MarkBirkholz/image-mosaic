@@ -1,19 +1,11 @@
-﻿using System;
-using System.Windows.Forms;
+namespace ImageMosaic;
 
-namespace ImageMosaic
+internal static class Program
 {
-    static class Program
+    [STAThread]
+    private static void Main()
     {
-        /// <summary>
-        /// Главная точка входа для приложения
-        /// </summary>
-        [STAThread]
-        static void Main()
-        {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new Main());
-        }
+        ApplicationConfiguration.Initialize();
+        Application.Run(new MainForm());
     }
 }
